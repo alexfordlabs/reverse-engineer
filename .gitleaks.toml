@@ -1,0 +1,107 @@
+# gitleaks config for the project-architect repo.
+# Extends the built-in default ruleset (~100 secret-detection rules) with
+# workspace-specific identity-correlation rules.
+#
+# To run manually:
+#   gitleaks dir --no-banner --config .gitleaks.toml .
+#   gitleaks protect --staged --no-banner --config .gitleaks.toml .
+
+title = "project-architect (Alex Ford Labs brand) gitleaks config"
+
+[extend]
+useDefault = true
+
+# === Global allowlist ===
+# Paths exempt from ALL rules (default + custom).
+# Used for files that ARE secret-like in shape but intentionally so (test fixtures, archives).
+[allowlist]
+description = "Globally exempt paths — local notes + frozen archives only"
+paths = [
+    # Local-only files
+    '''(^|/)PRIVATE\.md$''',
+    '''\.PRIVATE\.md$''',
+    '''\.bak\..*''',
+    # Local notes (gitignored anyway, but gitleaks dir scans filesystem)
+    '''(^|/)\.remember/''',
+    # Frozen historical content per CLAUDE.md "don't tweak history in passing"
+    '''(^|/)docs/superpowers/plans/''',
+    '''(^|/)docs/superpowers/specs/''',
+    '''(^|/)docs/superpowers/test-plans/''',
+    '''(^|/)docs/tests/''',
+    '''(^|/)tests/fixtures/''',
+    '''(^|/)_archive/''',
+    '''/_archive/''',
+    # Gitignored full-history dev files (curated public CHANGELOG.md is the tracked one)
+    '''(^|/)CHANGELOG\.dev\.md$''',
+]
+
+# === Identity-correlation rules (workspace-specific) ===
+# This repo is published under the alexfordlabs/* GitHub org and must NOT contain
+# strings that link the brand to Vladimir's real identity. PRIVATE.md (gitignored)
+# is the proper place for that context; tracked files should never have these.
+#
+# Each identity-correlation rule has its own per-rule allowlist for files that
+# LEGITIMATELY contain the strings (CHANGELOG history, HANDOFF migration record,
+# this .gitleaks.toml self-reference, the rule-documentation in pre-commit and
+# the version-bump test, plus the unreachable workspace-metadata CLAUDE.md).
+# The DEFAULT ruleset (AWS keys, JWTs, etc.) continues to scan all files.
+
+[[rules]]
+id = "identity-correlation-vladimir-dukelic"
+description = "Pseudonym→real-identity leak: 'vladimir-dukelic' / 'Vladimir Dukelic' / variants in tracked file"
+regex = '''(?i)vladimir[-_\s]?dukelic'''
+tags = ["identity-correlation", "alexfordlabs"]
+[[rules.allowlists]]
+paths = [
+    '''(^|/)CHANGELOG\.md$''',
+    '''(^|/)HANDOFF\.md$''',
+    '''(^|/)CLAUDE\.md$''',
+    '''(^|/)\.gitleaks\.toml$''',
+    '''(^|/)\.pre-commit-config\.yaml$''',
+    '''(^|/)tests/test_v700_version_bump\.sh$''',
+]
+
+[[rules]]
+id = "identity-correlation-vladimir-emails"
+description = "Vladimir-attributable email addresses (dukelic.com, pseudo-lang.com, siliconyouth)"
+regex = '''(?i)vladimir@(dukelic|pseudo-lang|siliconyouth)\.[a-z]{2,8}'''
+tags = ["identity-correlation", "alexfordlabs"]
+[[rules.allowlists]]
+paths = [
+    '''(^|/)CHANGELOG\.md$''',
+    '''(^|/)HANDOFF\.md$''',
+    '''(^|/)CLAUDE\.md$''',
+    '''(^|/)\.gitleaks\.toml$''',
+]
+
+[[rules]]
+id = "identity-correlation-silicon-youth"
+description = "Silicon Youth LLC / siliconyouth references in alexfordlabs brand repo"
+regex = '''(?i)silicon[-_\s]?youth'''
+tags = ["identity-correlation", "alexfordlabs"]
+[[rules.allowlists]]
+paths = [
+    '''(^|/)CHANGELOG\.md$''',
+    '''(^|/)HANDOFF\.md$''',
+    '''(^|/)CLAUDE\.md$''',
+    '''(^|/)README\.md$''',
+    '''(^|/)\.gitleaks\.toml$''',
+    '''(^|/)\.pre-commit-config\.yaml$''',
+    '''(^|/)\.gitignore$''',
+]
+
+[[rules]]
+id = "identity-correlation-pseudo-lang"
+description = "Vladimir's pre-existing brand pseudo-lang.com appearing in alexfordlabs repo"
+regex = '''(?i)pseudo[-_]?lang\.(com|io|dev|app)'''
+tags = ["identity-correlation", "alexfordlabs"]
+[[rules.allowlists]]
+paths = [
+    '''(^|/)CHANGELOG\.md$''',
+    '''(^|/)HANDOFF\.md$''',
+    '''(^|/)CLAUDE\.md$''',
+    '''(^|/)README\.md$''',
+    '''(^|/)\.gitleaks\.toml$''',
+    '''(^|/)\.pre-commit-config\.yaml$''',
+    '''(^|/)tests/test_v700_version_bump\.sh$''',
+]

@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# Author: Alexander Ford <alex@alexfordlabs.com>
+# License: MIT
+# Project: reverse-engineer (https://github.com/alexfordlabs/reverse-engineer)
+#
+# re-ledger — the reverse-engineer state writer (project-architect schema 3.1).
+#
+# reverse-engineer recovers a design from a foreign/brownfield project and hands it
+# off to project-architect (PA) through a SHARED, versioned FILE FORMAT — PA's
+# architect *schema 3.1* state. re-ledger WRITES/manages that recovered state.
+#
+# It conforms to the FORMAT only — it does NOT vendor PA's code, and it deliberately
+# has NO migrate / NO detect (PA owns reading, migrating, and staleness-detecting the
+# state; re-ledger only writes a complete, PA-consumable recovered state). The init
+# state carries EVERY baseline field a valid PA 3.0/3.1 state has, so PA's
+# `architect-ledger detect` / `import-decisions` accept it cleanly.
+#
+# Style mirrors PA's bin/architect-ledger: the `_apply` atomic-write helper, the
+# `now` timestamp incantation, the set-decision raw-JSON-or-string + LITERAL-dotted-
+# key semantics, and the `*_progress` sub-ledger upsert shape.
+#
+# Schema-3.1 facts pinned (PA references/state-schema.md §"3.0 → 3.1"):
+#   schema_version "3.1"; origin "reverse-engineered";
+#   recovery {recovered_by, recovered_at, source_summary, confidence_summary};
+#   reverse_engineer_progress {} sub-ledger (entries mirror PA's *_progress: .complete
+#   + .completed_at, which PA's detect/interrupted_flow reads);
+#   decisions = flat {key:value} (LITERAL dotted keys); decisions_schema_version "1.0".
+#
+# Every mutation stamps a real `date -u` timestamp (no back-fillable values).
+# state.json is machine-managed, so jq reformatting is intentional and fine.
+#
+# Usage:
+#   re-ledger now
+#   re-ledger [--state PATH] init --recovered-by <s> --source-summary <s>
+#   re-ledger [--state PATH] set-decision <key> <json-or-string>
+#   re-ledger [--state PATH] set-substep <phase> <substep>
+#   re-ledger [--state PATH] set-recovery <field> <value>
+#
+# Default state path: docs/_architect_state.json (relative to CWD = the recovered project).
+
+# shellcheck disable=SC2016  # jq filter bodies are intentionally single-quoted;
+# $now/$key/$val/etc. inside them are jq variables, not shell expansions.
+set -euo pipefail
+
+STATE="docs/_architect_state.json"
+if [[ "${1:-}" == "--state" ]]; then STATE="$2"; shift 2; fi
+
+now() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+
+# _apply <jq-filter> [jq-args...] — read STATE, apply filter, atomic-replace.
+# Always refreshes last_updated_at from `now` so every mutation advances it.
+_apply() {
+  local filter="$1"; shift
+  local tmp; tmp="$(mktemp "${STATE}.XXXXXX")"
+  jq --arg now "$(now)" "(.last_updated_at = \$now) | ${filter}" "$@" "$STATE" > "$tmp" \
+    && mv "$tmp" "$STATE"
+}
+
+require_state() {
+  [[ -f "$STATE" ]] || { echo "re-ledger: state file not found: $STATE (run 'init' first)" >&2; exit 1; }
+}
+
+usage() {
+  cat <<'EOF'
+re-ledger — reverse-engineer state writer (project-architect schema 3.1)
+
+Writes/manages a *recovered* schema-3.1 state that project-architect consumes via
+the shared file format. NO migrate / NO detect (project-architect owns those).
+
+Usage:
+  re-ledger now
+  re-ledger [--state PATH] <subcommand> [args]
+
+Subcommands:
+  init --recovered-by <s> --source-summary <s>
+        Create a COMPLETE schema-3.1 recovered state: origin "reverse-engineered",
+        recovery {recovered_by, recovered_at(now), source_summary, confidence_summary:null},
+        empty decisions {} + decisions_schema_version "1.0", reverse_engineer_progress {},
+        and every baseline PA field (so PA's detect/import-decisions accept it).
+  set-decision <key> <json-or-string>
+        Merge into flat .decisions (raw JSON if it parses, else bare string).
+        Dotted keys (e.g. database.engine) are stored as LITERAL flat keys, never nested.
+        Sets decisions_schema_version "1.0".
+  set-substep <phase> <substep>
+        Record reverse_engineer_progress[<phase>] for resumability. Idempotent
+        per-phase upsert preserving siblings. Entry: {substep, complete:false,
+        completed_at:null, updated_at:now} — .complete/.completed_at are PA's
+        detect/interrupted_flow contract.
+  set-recovery <field> <value>
+        Set recovery.<field> (e.g. confidence_summary), preserving sibling fields.
+
+Default state path: docs/_architect_state.json (relative to CWD).
+EOF
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  -h|--help) usage; exit 0 ;;
+  "") usage >&2; exit 2 ;;
+  now) now ;;
+  init)
+    recovered_by=""
+    source_summary=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --recovered-by)    recovered_by="$2"; shift 2 ;;
+        --source-summary)  source_summary="$2"; shift 2 ;;
+        *) echo "re-ledger init: unknown flag '$1'" >&2; exit 2 ;;
+      esac
+    done
+    [[ -n "$recovered_by" ]]   || { echo "re-ledger init: --recovered-by is required" >&2; exit 2; }
+    [[ -n "$source_summary" ]] || { echo "re-ledger init: --source-summary is required" >&2; exit 2; }
+
+    mkdir -p "$(dirname "$STATE")"
+    ts="$(now)"
+    # A COMPLETE schema-3.1 recovered state. Baseline field set is the union of what
+    # PA's `migrate` fills (schema_version, decisions_dir, project_layout, last_audit,
+    # decisions_schema_version, origin, recovery, reverse_engineer_progress) and the
+    # core lifecycle/pointer fields every PA state carries (plugin_version, started_at,
+    # last_updated_at, locked/version/locked_at, phase, decisions, phase_progress,
+    # documents_*, adrs_filed/next_adr_id, research_findings, recommended_plugins,
+    # snapshots, memory_pointer) — matching tests/fixtures/clean-3.0-bundle + the
+    # schema doc, so PA's detect/import-decisions consume it with no surprises.
+    #
+    # NOTE: the project name lives in decisions["project.name"] (a recovered decision),
+    # NOT a top-level field; doc_format is a COMPUTED detect output, never stored.
+    # So neither is seeded here — decisions starts empty (recovery hasn't run yet).
+    jq -n \
+      --arg ts "$ts" \
+      --arg recovered_by "$recovered_by" \
+      --arg source_summary "$source_summary" \
+      '{
+        schema_version: "3.1",
+        plugin_version: "1.0.0",
+        decisions_schema_version: "1.0",
+        started_at: $ts,
+        last_updated_at: $ts,
+
+        locked: false,
+        version: null,
+        locked_at: null,
+
+        phase: "preflight",
+        memory_pointer: null,
+
+        origin: "reverse-engineered",
+        recovery: {
+          recovered_by: $recovered_by,
+          recovered_at: $ts,
+          source_summary: $source_summary,
+          confidence_summary: null
+        },
+        reverse_engineer_progress: {},
+
+        decisions: {},
+        phase_progress: {},
+
+        documents_pending: [],
+        documents_generated: [],
+
+        adrs_filed: [],
+        next_adr_id: "0001",
+
+        decisions_dir: "docs/decisions",
+        project_layout: {},
+        last_audit: null,
+
+        research_findings: [],
+        recommended_plugins: [],
+        snapshots: []
+      }' > "$STATE"
+    echo "re-ledger: initialized recovered schema-3.1 state at $STATE"
+    ;;
+  set-decision)
+    require_state
+    key="$1"; val="$2"
+    # The value may be raw JSON ('"PostgreSQL"', 42, true, '["a","b"]') or a bare string.
+    # If it parses as JSON, ingest via --argjson; otherwise treat it as a plain string.
+    # Dotted keys are stored as a LITERAL flat key ({($key): $val}) — never nested —
+    # matching PA's set-decision + the import-decisions contract.
+    if printf '%s' "$val" | jq -e . >/dev/null 2>&1; then
+      _apply '.decisions = ((.decisions // {}) + {($key): $val})
+        | .decisions_schema_version = (.decisions_schema_version // "1.0")' \
+        --arg key "$key" --argjson val "$val"
+    else
+      _apply '.decisions = ((.decisions // {}) + {($key): $val})
+        | .decisions_schema_version = (.decisions_schema_version // "1.0")' \
+        --arg key "$key" --arg val "$val"
+    fi
+    ;;
+  set-substep)
+    require_state
+    phase="$1"; substep="$2"
+    # Idempotent upsert: overwrite ONLY this phase under .reverse_engineer_progress,
+    # preserving siblings. The entry mirrors PA's *_progress sub-ledger shape — it
+    # carries .complete + .completed_at, which PA's `detect` (interrupted_flow) reads
+    # to route a cross-version resume back in. A substep just recorded is in-flight, so
+    # complete:false / completed_at:null. .substep + .updated_at give reverse-engineer's
+    # own resumability (where we were, and when).
+    _apply '.reverse_engineer_progress = ((.reverse_engineer_progress // {})
+        + {($phase): {substep: $substep, complete: false, completed_at: null, updated_at: $now}})' \
+      --arg phase "$phase" --arg substep "$substep"
+    ;;
+  set-recovery)
+    require_state
+    field="$1"; value="$2"
+    # Set recovery.<field>, preserving sibling recovery fields. recovery is an object
+    # on a recovered state (init creates it); guard against null just in case.
+    _apply '.recovery = ((.recovery // {}) + {($field): $value})' \
+      --arg field "$field" --arg value "$value"
+    ;;
+  *) echo "re-ledger: unknown or unimplemented subcommand: '$cmd'" >&2; exit 2 ;;
+esac

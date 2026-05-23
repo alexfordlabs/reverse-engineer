@@ -1,0 +1,9 @@
+{
+  "name": "foreign-node-fixture",
+  "version": "0.1.0",
+  "description": "A tiny foreign (brownfield) Node project — NOT produced by project-architect.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

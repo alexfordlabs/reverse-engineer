@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+# Author: Alexander Ford <alex@alexfordlabs.com>
+# License: MIT
+# Project: reverse-engineer (https://github.com/alexfordlabs/reverse-engineer)
+#
+# re-detect — the reverse-engineer Phase-0 ("detect & scope") helper.
+#
+# reverse-engineer recovers a design from a FOREIGN/brownfield project (arbitrary
+# code/docs, NOT produced by project-architect). Before the pipeline runs, Phase 0
+# must confirm there is foreign material present — and must DEFER if the project is
+# already a project-architect (PA) project (PA's own /upgrade-project + /re-architect
+# flows own those). re-detect is that gate: it probes a target dir READ-ONLY and
+# emits a single JSON verdict on stdout. It NEVER writes into the target.
+#
+# Style mirrors bin/re-ledger / PA's bin/architect-ledger: set -euo pipefail, a jq
+# `-n` builder for the output object, a usage() heredoc, and the same attribution
+# header. The orchestrator skill (authored in a later wave) consumes this verdict.
+#
+# Verdict shape (stdout, one JSON object):
+#   {
+#     "target":               "<abs path to the probed dir>",
+#     "has_architect_state":  bool,   # docs/_architect_state.json present
+#     "is_foreign":           bool,   # project material present AND no architect state
+#     "scope_default":        "whole-repo",   # opinionated default; skill lets user override
+#     "action":               "reverse-engineer" | "defer-to-project-architect" | "nothing-to-do",
+#     "material": {                    # what was found (vendored/build/cache dirs EXCLUDED)
+#       "source_file_count":  int,
+#       "languages":          [ {"ext": "js", "count": 3}, ... ],   # top langs by file count
+#       "manifests":          ["package.json", ...],
+#       "has_docs":           bool,
+#       "docs":               ["README.md", ...],
+#       "summary":            "human-readable one-liner"
+#     },
+#     "tools_available": {             # best-effort `command -v` probe (graceful degradation)
+#       "scc": bool, "syft": bool, "grype": bool, "trivy": bool, "semgrep": bool,
+#       "jdeps": bool, "cargo": bool, "go": bool, "ctags": bool, "madge": bool,
+#       "pydeps": bool, "trufflehog": bool, "gitleaks": bool, "jq": bool
+#     }
+#   }
+#
+# "Project material" = ANY of: a recognized source file (by extension), a
+# package/build manifest, a doc (README*/*.md), OR a non-trivial folder tree —
+# always assessed with vendored/build/cache dirs (node_modules, target, dist,
+# build, .next, .venv, __pycache__, vendor, .git, …) EXCLUDED.
+#
+# Usage:
+#   re-detect <target-dir>
+#   re-detect -h | --help
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+re-detect — reverse-engineer Phase-0 detection & scope helper
+
+Probes a target directory READ-ONLY and prints a JSON verdict telling the
+orchestrator whether there is a FOREIGN project to reverse-engineer, whether a
+project-architect state is already present (DEFER to project-architect), or
+whether there is nothing to do. Also probes which analysis tools are installed
+(best-effort `command -v`) for graceful degradation in later phases.
+
+Usage:
+  re-detect <target-dir>
+  re-detect -h | --help
+
+Verdict fields:
+  has_architect_state  true iff <target-dir>/docs/_architect_state.json exists
+                       (→ this is a project-architect project; reverse-engineer DEFERS).
+  is_foreign           true iff project material is present AND no architect state.
+  material             {source_file_count, languages[], manifests[], has_docs, docs[], summary}.
+  tools_available      object of analysis-tool presence (scc/syft/grype/trivy/semgrep/
+                       jdeps/cargo/go/ctags/madge/pydeps/trufflehog/gitleaks/jq).
+  scope_default        "whole-repo" (opinionated default; the skill lets the user override).
+  action               "reverse-engineer" | "defer-to-project-architect" | "nothing-to-do".
+
+The target directory is inspected, never modified.
+EOF
+}
+
+# ── Argument parsing ────────────────────────────────────────────────────────────
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  "")        echo "re-detect: a target directory is required (try 're-detect -h')" >&2; exit 2 ;;
+esac
+
+TARGET="$1"
+[[ -d "$TARGET" ]] || { echo "re-detect: target directory not found: $TARGET" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "re-detect: jq is required but not installed" >&2; exit 1; }
+
+# Resolve to an absolute path for the verdict (read-only; we only cd into it).
+TARGET_ABS="$(cd "$TARGET" && pwd)"
+
+# ── Vendored/build/cache dirs to EXCLUDE from the material assessment ─────────────
+# These are re-creatable or VCS metadata; counting them would misclassify a checkout
+# with only `node_modules` as a "foreign project". Matched as path components.
+PRUNE_DIRS=(
+  node_modules target dist build out .next .nuxt .svelte-kit
+  .venv venv __pycache__ .mypy_cache .pytest_cache .ruff_cache
+  vendor .git .hg .svn .terraform .gradle .idea .vscode
+  coverage .turbo .cache bin obj Pods .dart_tool
+)
+
+# Recognized source-file extensions (extension-count is the heuristic — deliberately
+# simple + robust; we do NOT attempt real language detection).
+SOURCE_EXTS=(
+  js mjs cjs jsx ts tsx py rb php
+  go rs java kt kts scala swift
+  c h cpp cc cxx hpp hh cs
+  m mm dart ex exs erl clj cljs
+  lua pl r jl hs ml fs vue svelte
+  sh bash zip_dummy
+)
+
+# Manifest / build files we recognize (basename match).
+MANIFEST_NAMES=(
+  package.json Cargo.toml pyproject.toml setup.py setup.cfg requirements.txt Pipfile
+  go.mod pom.xml build.gradle build.gradle.kts settings.gradle Gemfile composer.json
+  CMakeLists.txt Makefile build.sbt mix.exs pubspec.yaml deno.json deno.jsonc
+  tsconfig.json Dockerfile docker-compose.yml docker-compose.yaml
+)
+
+# Analysis tools later phases use — probed best-effort, never assumed present.
+TOOL_NAMES=(
+  scc syft grype trivy semgrep jdeps cargo go ctags madge pydeps trufflehog gitleaks jq
+)
+
+# ── Build the `find` prune predicate once (reused for files + manifests) ──────────
+# Produces:  \( -name node_modules -o -name target -o ... \) -prune -o
+build_prune() {
+  local first=1
+  printf '('
+  for d in "${PRUNE_DIRS[@]}"; do
+    if [[ $first -eq 1 ]]; then first=0; else printf ' -o'; fi
+    printf ' -name %q' "$d"
+  done
+  printf ' )'
+}
+# shellcheck disable=SC2207  # we WANT word-splitting of the prune predicate into argv.
+PRUNE_PRED=($(build_prune))
+
+# ── has_architect_state ───────────────────────────────────────────────────────
+HAS_ARCHITECT_STATE=false
+[[ -f "$TARGET_ABS/docs/_architect_state.json" ]] && HAS_ARCHITECT_STATE=true
+
+# ── Tool probe (best-effort command -v) ───────────────────────────────────────
+# Emit one "<name> <true|false>" line per tool; jq folds it into an object below.
+tool_lines() {
+  local t
+  for t in "${TOOL_NAMES[@]}"; do
+    if command -v "$t" >/dev/null 2>&1; then
+      printf '%s true\n' "$t"
+    else
+      printf '%s false\n' "$t"
+    fi
+  done
+}
+TOOLS_JSON="$(tool_lines | jq -R 'split(" ") | {(.[0]): (.[1] == "true")}' | jq -s 'add')"
+
+# ── Material assessment (vendored/build/cache dirs pruned) ────────────────────────
+# 1. Recognized source files, grouped by extension (top langs by count).
+#    `find ... -prune -o -type f -print` skips inside the pruned dirs.
+SRC_EXT_LINES="$(
+  cd "$TARGET_ABS" && find . "${PRUNE_PRED[@]}" -prune -o -type f -print 2>/dev/null \
+    | while IFS= read -r f; do
+        base="${f##*/}"
+        # extension = lowercase chars after the last dot, only if the basename has a dot
+        case "$base" in
+          *.*) ext="${base##*.}"; printf '%s\n' "$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')" ;;
+          *)   : ;;  # no extension → not counted as a source file
+        esac
+      done \
+    | { grep -E "^($(IFS='|'; echo "${SOURCE_EXTS[*]}"))$" || true; } \
+    | sort | uniq -c | sort -rn
+)"
+
+# languages[] = [{"ext":..,"count":..}] (top 10), and total source_file_count.
+if [[ -n "$SRC_EXT_LINES" ]]; then
+  LANGS_JSON="$(
+    printf '%s\n' "$SRC_EXT_LINES" \
+      | awk 'NF==2 {printf "{\"ext\":\"%s\",\"count\":%d}\n", $2, $1}' \
+      | jq -s '.[0:10]'
+  )"
+  SRC_COUNT="$(printf '%s\n' "$SRC_EXT_LINES" | awk 'NF==2 {s+=$1} END {print s+0}')"
+else
+  LANGS_JSON='[]'
+  SRC_COUNT=0
+fi
+
+# 2. Manifests present (basename match, pruned-dir-aware).
+MANIFEST_LIST="$(
+  cd "$TARGET_ABS" && find . "${PRUNE_PRED[@]}" -prune -o -type f -print 2>/dev/null \
+    | while IFS= read -r f; do printf '%s\n' "${f##*/}"; done \
+    | { grep -Fxf <(printf '%s\n' "${MANIFEST_NAMES[@]}") || true; } \
+    | sort -u
+)"
+if [[ -n "$MANIFEST_LIST" ]]; then
+  MANIFESTS_JSON="$(printf '%s\n' "$MANIFEST_LIST" | jq -R . | jq -s .)"
+else
+  MANIFESTS_JSON='[]'
+fi
+
+# 3. Docs present (README* anywhere + top-level *.md), pruned-dir-aware.
+DOC_LIST="$(
+  cd "$TARGET_ABS" && find . "${PRUNE_PRED[@]}" -prune -o -type f \
+      \( -iname 'README*' -o -name '*.md' -o -name '*.markdown' -o -name '*.rst' -o -name '*.adoc' \) -print 2>/dev/null \
+    | sed 's|^\./||' \
+    | sort -u
+)"
+if [[ -n "$DOC_LIST" ]]; then
+  DOCS_JSON="$(printf '%s\n' "$DOC_LIST" | jq -R . | jq -s '.[0:20]')"
+  HAS_DOCS=true
+else
+  DOCS_JSON='[]'
+  HAS_DOCS=false
+fi
+
+# 4. Non-trivial folder tree: any subdirectory that is NOT a pruned dir. This lets a
+#    project made only of (say) config/data dirs still register as "material".
+NONTRIVIAL_TREE=false
+SUBDIR_HIT="$(
+  cd "$TARGET_ABS" && find . "${PRUNE_PRED[@]}" -prune -o -mindepth 1 -type d -print 2>/dev/null | head -n1
+)"
+[[ -n "$SUBDIR_HIT" ]] && NONTRIVIAL_TREE=true
+
+# ── Derive is_foreign + action ─────────────────────────────────────────────────
+# Material present iff ANY signal fired. Vendored/build/cache dirs were pruned out
+# of every probe above, so a checkout that is ONLY node_modules reads as no-material.
+HAS_MATERIAL=false
+if [[ "$SRC_COUNT" -gt 0 || "$MANIFESTS_JSON" != '[]' || "$HAS_DOCS" == "true" || "$NONTRIVIAL_TREE" == "true" ]]; then
+  HAS_MATERIAL=true
+fi
+
+IS_FOREIGN=false
+if [[ "$HAS_ARCHITECT_STATE" == "true" ]]; then
+  ACTION="defer-to-project-architect"
+elif [[ "$HAS_MATERIAL" == "true" ]]; then
+  IS_FOREIGN=true
+  ACTION="reverse-engineer"
+else
+  ACTION="nothing-to-do"
+fi
+
+# ── Human-readable material summary ─────────────────────────────────────────────
+TOP_LANG="$(printf '%s' "$LANGS_JSON" | jq -r 'if length > 0 then (map(.ext) | join(", ")) else "none" end')"
+MANIFEST_SUMMARY="$(printf '%s' "$MANIFESTS_JSON" | jq -r 'if length > 0 then join(", ") else "none" end')"
+SUMMARY="$SRC_COUNT source file(s) [top: $TOP_LANG]; manifests: $MANIFEST_SUMMARY; docs: $([[ "$HAS_DOCS" == "true" ]] && echo present || echo none)"
+
+# ── Emit the verdict ────────────────────────────────────────────────────────────
+jq -n \
+  --arg target "$TARGET_ABS" \
+  --argjson has_architect_state "$HAS_ARCHITECT_STATE" \
+  --argjson is_foreign "$IS_FOREIGN" \
+  --arg action "$ACTION" \
+  --argjson src_count "$SRC_COUNT" \
+  --argjson languages "$LANGS_JSON" \
+  --argjson manifests "$MANIFESTS_JSON" \
+  --argjson has_docs "$HAS_DOCS" \
+  --argjson docs "$DOCS_JSON" \
+  --arg summary "$SUMMARY" \
+  --argjson tools "$TOOLS_JSON" \
+  '{
+    target: $target,
+    has_architect_state: $has_architect_state,
+    is_foreign: $is_foreign,
+    scope_default: "whole-repo",
+    action: $action,
+    material: {
+      source_file_count: $src_count,
+      languages: $languages,
+      manifests: $manifests,
+      has_docs: $has_docs,
+      docs: $docs,
+      summary: $summary
+    },
+    tools_available: $tools
+  }'

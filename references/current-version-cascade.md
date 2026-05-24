@@ -124,7 +124,7 @@ Report each CVE as **id + severity + fixed-version**. If every source is unreach
 ```
 GET https://endoflife.date/api/v1/products/{product}
 ```
-Returns the product's release cycles, each with its EOL date (the `eol` field — a date string, or `true`/`false`). Flag the detected version's cycle as **past-EOL** (EOL date in the past) or **nearing-EOL** (e.g. within ~6 months).
+Returns (v1 API, **clean JSON**) `.result.releases[]` — each release cycle carries `name` (the cycle, e.g. `"16"`), `isEol` (boolean), `eolFrom` (the EOL date), plus a nested `latest{name,date,link}`. Read **`isEol`/`eolFrom`** — NOT a single `eol` field: that is the **legacy** `/api/{product}.json` shape (where `eol` was a date string or `true`/`false`); the v1 endpoint here uses the `isEol` boolean + the `eolFrom` date. Flag the detected version's cycle as **past-EOL** (`isEol: true`, or `eolFrom` in the past) or **nearing-EOL** (e.g. `eolFrom` within ~6 months).
 
 ```
 GET https://endoflife.date/api/v1/products

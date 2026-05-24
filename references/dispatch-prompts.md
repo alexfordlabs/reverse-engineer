@@ -55,6 +55,10 @@ An agent that hits a **BLOCKER** (a precondition it can't satisfy, a tool that w
 
 Each body below is appended after the Shared dispatch header. The `{{...}}` slots are filled by the orchestrator from `re-detect`'s verdict + the upstream agents' returned content (the **input-threading** that is the pipeline's spine — see `SKILL.md § Input-threading`). The threaded inputs are passed **as the upstream agent returned them** (the full produced content, not a paraphrase) so each downstream agent builds on real evidence.
 
+> **Reference paths are threaded ABSOLUTE.** A **dispatched subagent has no plugin base directory** (only the orchestrator's loaded SKILL is told its base dir + has `${CLAUDE_PLUGIN_ROOT}` expanded), so an agent cannot resolve a plugin-relative reference path like `../references/foo.md` from its own cwd (which is the *user's* project). Wherever an agent needs a bundled reference, the orchestrator threads its **absolute** path built from `${CLAUDE_PLUGIN_ROOT}` — `cascade_reference_path` (landscape-researcher) and `recovered_design_template_path` (design-recoverer) below. The agent `Read`s the absolute path; the inline summary in its own prompt is the **degradation floor** if the path input is ever absent.
+
+> **The `*_available` flags are ADVISORY.** `semgrep_mcp_available` / `security_review_available` / `context7_available` describe the *orchestrator's* view, not the subagent's. A dispatched subagent's real **tool surface** is `Read`/`Grep`/`Glob`/`Bash` (+ `WebSearch`/`WebFetch` for landscape-researcher) — MCP servers and skill-tools (Semgrep MCP, `/security-review`, context7) are typically NOT in a subagent's function set. So each agent **verifies its own tool surface** (`command -v` for CLIs; check the live function set for MCP) and degrades to the CLI/EMULATE path; it never blocks on a flag being `true`. For a subagent, the INVOKE paths that depend on an MCP/skill-tool usually resolve to EMULATE or a Bash-CLI equivalent — and that is correct, honest behaviour.
+
 ### P1 — code-inventory (dispatched FIRST; no upstream agent input)
 
 ```
@@ -117,11 +121,12 @@ detections:                                          # ← THREADED upstream out
   from_code_inventory: {{languages, runtime(s), headline framework(s), build tool(s), patterns}}
   from_dependency_mapper: {{the external-dependency inventory table — name/ecosystem/pinned/file:line, version+status+CVE slots empty}}
 tools_available: {{verdict.tools_available}}
-context7_available: {{true|false}}
+context7_available: {{true|false}}        # advisory — verify your own surface; the context7 MCP is usually NOT in a dispatched subagent's function set → degrade to vendor llms.txt via WebFetch
+cascade_reference_path: {{plugin_root}}/references/current-version-cascade.md   # ABSOLUTE path, orchestrator-provided — Read THIS for the full cascade (a dispatched subagent cannot resolve a plugin-relative reference path itself)
 offline: {{true|false}}   # if true, degrade per the offline-honesty rule — NEVER fall back to training data
 
 [TASK]
-Run the current-version cascade (references/current-version-cascade.md) per detected dependency/
+Run the current-version cascade (read your cascade_reference_path input — the absolute path to references/current-version-cascade.md) per detected dependency/
 runtime against LIVE sources only (syft→SBOM; deps.dev isDefault; OSV/grype CVEs; endoflife.date EOL;
 context7/llms.txt doc confirmation). Fill current_stable/versions_behind/status/CVEs/source/confidence —
 the slots dependency-mapper left. Every fact carries a live source + confidence; unreachable sources are
@@ -160,14 +165,15 @@ requirements: {{requirements-extractor's returned content}}
 landscape: {{landscape-researcher's returned content}}
 docs_findings: {{any prose specs/READMEs surfaced in P0, or "none"}}
 tools_available: {{verdict.tools_available}}
-semgrep_mcp_available: {{true|false}}
-security_review_available: {{true|false}}
+semgrep_mcp_available: {{true|false}}        # advisory — verify your own surface; the Semgrep MCP is usually NOT in a dispatched subagent's function set → EMULATE or use the `semgrep` Bash CLI if present
+security_review_available: {{true|false}}    # advisory — the /security-review skill-tool is usually NOT reachable from a subagent → EMULATE the security dimension from the evidence
+recovered_design_template_path: {{plugin_root}}/references/templates/RECOVERED_DESIGN.md   # ABSOLUTE path, orchestrator-provided — Read THIS to match the output shape (a dispatched subagent cannot resolve a plugin-relative reference path itself)
 
 [TASK]
 Synthesize the recovered DESIGN via the reflexion model (hypothesize → map → convergence/divergence/
 absence), grade structural health from the Arcan smells, apply the architecture-critic's skeptical lens,
 INVOKE /security-review + Semgrep for the security dimension (else EMULATE), and produce BOTH outputs:
-(1) RECOVERED_DESIGN content (PA-shape-compatible; match references/templates/RECOVERED_DESIGN.md), and
+(1) RECOVERED_DESIGN content (PA-shape-compatible; match the template at your recovered_design_template_path input — the absolute path to references/templates/RECOVERED_DESIGN.md), and
 (2) the FLAT decisions keyspace — {canonical-PA-key-or-project-slug: value}, each row value·confidence·
 evidence, NEVER invented. Return both + the summary. The flat keyspace is what re-ledger ingests.
 ```

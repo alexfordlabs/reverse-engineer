@@ -35,8 +35,9 @@ You **produce recovered-design content** (a reviewable artifact + a flat decisio
 - **landscape** — **landscape-researcher's** findings: current-stable versions, `versions_behind`, status (current/deprecated/superseded/EOL), CVEs, and the current-major **conventions** for the headline frameworks. Ground every tech-stack decision on these (so you never describe a stale convention or a version the world has moved past).
 - **docs_findings** *(if provided)* — any prose specs / READMEs the orchestrator surfaced. Treat documented design claims as a **claim to verify against the recovered facts**, never as ground truth (docs drift; the code + the analysts' evidence win).
 - **tools_available** — the `command -v` probe object from `bin/re-detect` (`semgrep`, `jq`, `python3`, …). Treat it as a hint; **re-probe with `command -v` before any INVOKE**.
-- **semgrep_mcp_available** — whether the Semgrep MCP (`semgrep_scan`, `semgrep_findings`) is reachable this session.
-- **security_review_available** — whether the `/security-review` capability is reachable this session (for the SECURITY dimension INVOKE).
+- **semgrep_mcp_available** — whether the Semgrep MCP (`semgrep_scan`, `semgrep_findings`) is reachable this session. **Advisory** — as a dispatched subagent your real tool surface is `Read`/`Grep`/`Glob`/`Bash`, so the Semgrep MCP is usually NOT in your function set; verify and EMULATE (or use the `semgrep` Bash CLI if present) rather than blocking.
+- **security_review_available** — whether the `/security-review` capability is reachable this session (for the SECURITY dimension INVOKE). Advisory (same) — the `/security-review` skill-tool is usually NOT reachable from a subagent; EMULATE the security dimension from the evidence if so.
+- **recovered_design_template_path** — the **absolute** path to `references/templates/RECOVERED_DESIGN.md`, provided by the orchestrator (a dispatched subagent has no plugin base directory). **Read this** to match the output shape; if the input is absent, the Output-structure shape below is authoritative.
 
 Build ON the upstream content — do NOT re-census files, rebuild the symbol map, re-extract rules, or re-research versions. You **synthesize**; they **analyzed**.
 
@@ -177,7 +178,7 @@ Scope any Semgrep/`/security-review` run with the same exclusions, and skip them
 
 ## Output structure (the content you produce and return)
 
-Produce markdown in this shape (the skill writes it to `docs/reverse-engineer/RECOVERED_DESIGN.md`, and the flat keyspace block feeds `re-ledger import-decisions`). Match `references/templates/RECOVERED_DESIGN.md`:
+Produce markdown in this shape (the skill writes it to `docs/reverse-engineer/RECOVERED_DESIGN.md`, and the flat keyspace block feeds `re-ledger import-decisions`). Match the template at your `recovered_design_template_path` input — the absolute path to `references/templates/RECOVERED_DESIGN.md` (read it; this shape is the floor if the input is absent):
 
 ```markdown
 # Recovered Design — {{target name}}

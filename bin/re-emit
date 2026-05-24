@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# Author: Alexander Ford <alex@alexfordlabs.com>
+# License: MIT
+# Project: reverse-engineer (https://github.com/alexfordlabs/reverse-engineer)
+#
+# re-emit — the reverse-engineer P4 ("emit") mechanics.
+#
+# reverse-engineer recovers a design from a FOREIGN/brownfield project and its pipeline
+# ENDS by emitting a standard recovery artifact SET (the "P4 emit" phase). The
+# orchestrator skill (authored in a later wave) dispatches the 6 analysis agents,
+# collects their markdown outputs, and calls re-emit to WRITE the artifact set + ENSURE
+# the shared schema-3.1 state. re-emit is those mechanics — concrete + testable —
+# decoupled from the skill so the set is always written the same contract-correct way.
+#
+# The artifact set (spec §5 + references/artifacts.md):
+#   <out>/docs/reverse-engineer/INVENTORY.md      (from code-inventory)
+#   <out>/docs/reverse-engineer/DEPENDENCIES.md   (dependency-mapper + landscape-researcher, merged)
+#   <out>/docs/reverse-engineer/REQUIREMENTS.md   (from requirements-extractor)
+#   <out>/docs/reverse-engineer/SUMMARY.md        (the recovery report)
+#   <out>/docs/RECOVERED_DESIGN.md                (from design-recoverer)
+#   <out>/docs/_architect_state.json              (schema 3.1, origin "reverse-engineered")
+#
+# Behavior:
+#   • Each provided --<artifact> FILE is written verbatim to its artifact path.
+#   • A NOT-provided artifact gets a minimal SKELETON placeholder carrying the correct
+#     section heading, so the set is ALWAYS complete (the skill fills real content later).
+#   • The 3.1 state is ENSURED by delegating to `bin/re-ledger init` (ONLY when absent) —
+#     re-emit NEVER hand-rolls the state; re-ledger is the contract-correct, PA-
+#     `import-decisions`-compatible writer. An existing state is left untouched (idempotent).
+#   • Idempotent; creates dirs as needed; writes ONLY under <out>; echoes what it wrote.
+#
+# Style mirrors bin/re-ledger / bin/re-detect: set -euo pipefail, a usage() heredoc, the
+# same attribution header, atomic writes via mktemp+mv, and delegation to re-ledger for
+# anything touching state shape.
+#
+# Usage:
+#   re-emit --out <dir> [--recovered-by S] [--source-summary S]
+#           [--inventory FILE] [--dependencies FILE] [--requirements FILE]
+#           [--summary FILE] [--recovered-design FILE] [--characterization-dir DIR]
+#   re-emit -h | --help
+
+set -euo pipefail
+
+# Resolve our sibling re-ledger (same bin/ dir) regardless of CWD.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RE_LEDGER="$SELF_DIR/re-ledger"
+
+usage() {
+  cat <<'EOF'
+re-emit — reverse-engineer P4 "emit" mechanics (writes the recovery artifact set + the schema-3.1 state)
+
+Writes the standard reverse-engineer recovery artifact SET under --out and ENSURES a
+shared schema-3.1 "reverse-engineered" state (delegated to bin/re-ledger — never hand-
+rolled). Each provided content FILE lands verbatim in its artifact; a NOT-provided
+artifact gets a minimal skeleton placeholder so the set is always complete. Idempotent;
+writes ONLY under --out; NEVER touches the analyzed target project.
+
+Usage:
+  re-emit --out <dir> [options]
+  re-emit -h | --help
+
+Required:
+  --out <dir>                 the output project dir (the recovered project's root).
+                              All artifacts are written under <dir>/docs/ — nothing else.
+
+State provenance (passed through to `re-ledger init`, only used if no state exists yet):
+  --recovered-by <s>          recovery.recovered_by      (default: "reverse-engineer")
+  --source-summary <s>        recovery.source_summary    (default: "foreign/brownfield project")
+
+Content files (each written verbatim to its artifact path; omitted → skeleton placeholder):
+  --inventory FILE            → <out>/docs/reverse-engineer/INVENTORY.md
+  --dependencies FILE         → <out>/docs/reverse-engineer/DEPENDENCIES.md
+  --requirements FILE         → <out>/docs/reverse-engineer/REQUIREMENTS.md
+  --summary FILE              → <out>/docs/reverse-engineer/SUMMARY.md
+  --recovered-design FILE     → <out>/docs/RECOVERED_DESIGN.md
+  --characterization-dir DIR  optional; copies DIR/* into
+                              <out>/docs/reverse-engineer/characterization-tests/
+                              (opt-in; only if characterization ran).
+
+Artifact set written (always complete):
+  docs/reverse-engineer/INVENTORY.md      docs/reverse-engineer/DEPENDENCIES.md
+  docs/reverse-engineer/REQUIREMENTS.md   docs/reverse-engineer/SUMMARY.md
+  docs/RECOVERED_DESIGN.md                docs/_architect_state.json  (schema 3.1)
+
+See references/artifacts.md for the full artifact-set contract (each file, its source
+agent, required sections, and the shared schema-3.1 state contract).
+EOF
+}
+
+# ── Argument parsing ────────────────────────────────────────────────────────────
+OUT=""
+RECOVERED_BY="reverse-engineer"
+SOURCE_SUMMARY="foreign/brownfield project"
+INVENTORY=""
+DEPENDENCIES=""
+REQUIREMENTS=""
+SUMMARY=""
+RECOVERED_DESIGN=""
+CHARACTERIZATION_DIR=""
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  "")        echo "re-emit: --out <dir> is required (try 're-emit -h')" >&2; exit 2 ;;
+esac
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)             usage; exit 0 ;;
+    --out)                 OUT="${2:-}"; shift 2 ;;
+    --recovered-by)        RECOVERED_BY="${2:-}"; shift 2 ;;
+    --source-summary)      SOURCE_SUMMARY="${2:-}"; shift 2 ;;
+    --inventory)           INVENTORY="${2:-}"; shift 2 ;;
+    --dependencies)        DEPENDENCIES="${2:-}"; shift 2 ;;
+    --requirements)        REQUIREMENTS="${2:-}"; shift 2 ;;
+    --summary)             SUMMARY="${2:-}"; shift 2 ;;
+    --recovered-design)    RECOVERED_DESIGN="${2:-}"; shift 2 ;;
+    --characterization-dir) CHARACTERIZATION_DIR="${2:-}"; shift 2 ;;
+    *) echo "re-emit: unknown flag '$1' (try 're-emit -h')" >&2; exit 2 ;;
+  esac
+done
+
+[[ -n "$OUT" ]] || { echo "re-emit: --out <dir> is required" >&2; exit 2; }
+
+# re-ledger is mandatory — it is the ONLY writer of the state (we never hand-roll it).
+[[ -x "$RE_LEDGER" ]] || { echo "re-emit: required sibling bin/re-ledger not found or not executable at $RE_LEDGER" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "re-emit: jq is required but not installed" >&2; exit 1; }
+
+# ── Layout under --out (the ONLY place re-emit writes) ────────────────────────────
+DOCS="$OUT/docs"
+RE_DIR="$DOCS/reverse-engineer"
+STATE="$DOCS/_architect_state.json"
+mkdir -p "$RE_DIR"
+
+WROTE=()      # provenance: artifacts written from provided content
+SKELETON=()   # provenance: artifacts written as skeleton placeholders
+
+# write_atomic <dest> — copy stdin to <dest> via a temp file + mv (no partial writes).
+write_atomic() {
+  local dest="$1" tmp
+  tmp="$(mktemp "${dest}.XXXXXX")"
+  cat > "$tmp"
+  mv "$tmp" "$dest"
+}
+
+# skeleton <kind> — emit the minimal placeholder body for an artifact KIND on stdout.
+# Each carries the artifact's canonical top-level heading (matching the source agent's
+# output structure) + a one-line note that the orchestrator skill fills it later. The
+# set is therefore ALWAYS complete + structurally recognizable, never empty.
+skeleton() {
+  case "$1" in
+    inventory)        local title="# Code Inventory — {{target name}}";                       local agent="code-inventory" ;;
+    dependencies)     local title="# Dependencies & Coupling — {{target name}}";               local agent="dependency-mapper + landscape-researcher" ;;
+    requirements)     local title="# Inferred Requirements & Business Rules — {{target name}}"; local agent="requirements-extractor" ;;
+    summary)          local title="# Recovery Summary — {{target name}}";                      local agent="the /reverse-engineer recovery report" ;;
+    recovered-design) local title="# Recovered Design — {{target name}}";                      local agent="design-recoverer" ;;
+    *) echo "re-emit: internal error — unknown skeleton kind '$1'" >&2; exit 1 ;;
+  esac
+  cat <<EOF
+<!--
+Author: Alexander Ford <alex@alexfordlabs.com>
+Repository: https://github.com/alexfordlabs/reverse-engineer
+License: MIT
+-->
+
+$title
+
+> **Placeholder — not yet generated.** The \`/reverse-engineer\` skill emits this
+> artifact from **$agent**'s output during the P4 emit phase. This skeleton placeholder
+> keeps the recovery artifact set complete (see \`references/artifacts.md\`); real
+> content replaces it once the analysis pass for this artifact has run.
+
+---
+
+*★ Skillfully made with [reverse-engineer](https://github.com/alexfordlabs/reverse-engineer).*
+EOF
+}
+
+# emit_artifact <kind> <dest> <provided-file-or-empty>
+# Provided file → written verbatim (WROTE); else → skeleton placeholder (SKELETON).
+emit_artifact() {
+  local kind="$1" dest="$2" src="$3"
+  if [[ -n "$src" ]]; then
+    [[ -f "$src" ]] || { echo "re-emit: --$kind content file not found: $src" >&2; exit 1; }
+    write_atomic "$dest" < "$src"
+    WROTE+=("$dest  (from --$kind: $src)")
+  else
+    skeleton "$kind" | write_atomic "$dest"
+    SKELETON+=("$dest  (skeleton placeholder)")
+  fi
+}
+
+# ── 1. Understanding docs + RECOVERED_DESIGN ─────────────────────────────────────
+emit_artifact inventory        "$RE_DIR/INVENTORY.md"        "$INVENTORY"
+emit_artifact dependencies     "$RE_DIR/DEPENDENCIES.md"     "$DEPENDENCIES"
+emit_artifact requirements     "$RE_DIR/REQUIREMENTS.md"     "$REQUIREMENTS"
+emit_artifact summary          "$RE_DIR/SUMMARY.md"          "$SUMMARY"
+emit_artifact recovered-design "$DOCS/RECOVERED_DESIGN.md"   "$RECOVERED_DESIGN"
+
+# ── 2. Optional characterization-tests/ (opt-in; only if the dir was provided) ────
+if [[ -n "$CHARACTERIZATION_DIR" ]]; then
+  [[ -d "$CHARACTERIZATION_DIR" ]] || { echo "re-emit: --characterization-dir not found: $CHARACTERIZATION_DIR" >&2; exit 1; }
+  CHAR_DEST="$RE_DIR/characterization-tests"
+  mkdir -p "$CHAR_DEST"
+  # Copy the directory's CONTENTS into the artifact subdir (read-only over the source).
+  cp -R "$CHARACTERIZATION_DIR"/. "$CHAR_DEST"/
+  WROTE+=("$CHAR_DEST/  (from --characterization-dir: $CHARACTERIZATION_DIR)")
+fi
+
+# ── 3. Ensure the schema-3.1 state — delegate to re-ledger (NEVER hand-rolled) ────
+# Idempotent: only `init` when the state is absent; an existing state is the recovery's
+# in-flight ledger (decisions, progress, recovery provenance) and MUST be preserved.
+if [[ -f "$STATE" ]]; then
+  STATE_NOTE="$STATE  (already present — preserved; not re-initialized)"
+else
+  "$RE_LEDGER" --state "$STATE" init \
+    --recovered-by "$RECOVERED_BY" \
+    --source-summary "$SOURCE_SUMMARY" >/dev/null
+  STATE_NOTE="$STATE  (initialized via re-ledger: schema 3.1, origin reverse-engineered)"
+fi
+
+# ── 4. Provenance: echo exactly what was written (and where) ──────────────────────
+echo "re-emit: wrote the reverse-engineer recovery artifact set under $OUT"
+for w in "${WROTE[@]}";    do echo "  ✓ $w"; done
+for s in "${SKELETON[@]}"; do echo "  · $s"; done
+echo "  • $STATE_NOTE"

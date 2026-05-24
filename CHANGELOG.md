@@ -10,6 +10,19 @@ All notable changes to the `reverse-engineer` plugin.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v1.0.1 — 2026-05-24
+
+**Install-verification fixes** — corrections surfaced by running v1.0.0 end-to-end on the live install.
+
+### Fixed
+
+- **Subagent reference resolution.** A dispatched analysis agent has no plugin base directory, so a plugin-relative reference path (`../references/…`) could not be resolved from the agent's working directory. The orchestrator now threads the **absolute** reference path into the two dispatches that read a bundled reference — `cascade_reference_path` (landscape-researcher → the current-version cascade) and `recovered_design_template_path` (design-recoverer → the `RECOVERED_DESIGN.md` template), built from `${CLAUDE_PLUGIN_ROOT}`. Each agent's inline summary remains the fallback floor, so a run never blocks on it.
+- **endoflife.date field shape.** The current-version-cascade reference now documents the v1 API response correctly — `.result.releases[]` with `isEol` (boolean) + `eolFrom` (date), rather than the legacy single `eol` field; the v1 endpoint returns clean JSON.
+
+### Changed
+
+- The `semgrep_mcp_available` / `security_review_available` / `context7_available` dispatch flags are documented as **advisory**: a dispatched subagent's tool surface is `Read`/`Grep`/`Glob`/`Bash` (+ `WebSearch`/`WebFetch` for landscape research), so it verifies its own tool surface and degrades to a CLI/EMULATE path rather than relying on the flag.
+
 ## v1.0.0 — 2026-05-24
 
 **Initial release: recover a design from a project you didn't build, then hand it to project-architect.**

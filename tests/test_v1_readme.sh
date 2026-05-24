@@ -29,8 +29,8 @@ assert_contains "$DOC" "brownfield" "README: names the brownfield premise"
 
 # ── 3. Install — from the shared alexfordlabs marketplace ────────────────────
 assert_contains "$DOC" "## Install" "README: has an Install section"
-assert_contains "$DOC" "claude plugin marketplace add alexfordlabs/project-architect" \
-  "README: documents the marketplace-add command (shared marketplace, rooted in the PA repo)"
+assert_contains "$DOC" "claude plugin marketplace add alexfordlabs/skills" \
+  "README: documents the marketplace-add command (shared alexfordlabs/skills collection)"
 assert_contains "$DOC" "claude plugin install reverse-engineer@alexfordlabs" \
   "README: documents the plugin-install command (reverse-engineer@alexfordlabs)"
 

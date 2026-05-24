@@ -43,8 +43,8 @@ The **missing origin** is the one in between: a **foreign / brownfield** project
 `reverse-engineer` ships from the shared **`alexfordlabs`** Claude Code marketplace — the same one-marketplace, two-plugin setup as its companion `project-architect`.
 
 ```bash
-# 1. Add the shared marketplace (it lives in the project-architect repo)
-claude plugin marketplace add alexfordlabs/project-architect
+# 1. Add the shared marketplace (the alexfordlabs/skills collection)
+claude plugin marketplace add alexfordlabs/skills
 
 # 2. Install reverse-engineer from it
 claude plugin install reverse-engineer@alexfordlabs

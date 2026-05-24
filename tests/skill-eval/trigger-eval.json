@@ -1,0 +1,23 @@
+[
+  {"query": "i inherited this node repo from a dev who left, no docs, no idea how it's wired. can you reverse-engineer it and tell me what it actually does and whether the deps are current?", "should_trigger": true},
+  {"query": "recover the design of the project in ./legacy-billing — i want a RECOVERED_DESIGN doc and a decisions list I can review before we touch anything", "should_trigger": true},
+  {"query": "we acquired a small company and got their codebase as a tarball. it's a python/flask thing. figure out the architecture, the data model, and what business rules are buried in there", "should_trigger": true},
+  {"query": "what does this codebase do and is it up to date? it's an express service at tests/fixtures/e2e-foreign-node that someone handed me", "should_trigger": true},
+  {"query": "this is a brownfield go service nobody fully understands anymore. reconstruct its requirements and architecture from the source so we can plan a rewrite", "should_trigger": true},
+  {"query": "i need to take over maintenance of an old project that was NOT set up with project-architect. can you get it into a state where project-architect can carry it forward?", "should_trigger": true},
+  {"query": "here's a folder with scattered scripts, a half-finished api, and some markdown notes. make sense of it — inventory it, map the dependencies, infer what it's supposed to be", "should_trigger": true},
+  {"query": "analyze this unfamiliar repo someone else wrote and tell me its real dependency versions, any CVEs, and whether the runtime is EOL — don't guess from memory, check live", "should_trigger": true},
+  {"query": "i have a Cargo project I cloned and I genuinely don't know how the modules relate or what the design intent was. help me understand it and write down the decisions it seems to embody", "should_trigger": true},
+  {"query": "reverse engineer this", "should_trigger": true},
+
+  {"query": "I'm starting a brand-new Rust CLI from scratch — help me set up the project architecture, pick a stack, and generate the planning docs", "should_trigger": false},
+  {"query": "scaffold a new Next.js app for me with the usual CLAUDE.md and .claude tooling, it's a greenfield SaaS idea", "should_trigger": false},
+  {"query": "this project already has docs/_architect_state.json from project-architect — I want to re-architect it and revisit the old decisions with fresh research", "should_trigger": false},
+  {"query": "review this pull request for bugs and style issues before I merge it", "should_trigger": false},
+  {"query": "there's a failing test in src/auth/login.test.ts — debug why it's red and fix it", "should_trigger": false},
+  {"query": "read package.json and tell me which version of react is pinned", "should_trigger": false},
+  {"query": "refactor this 400-line UserService class into smaller modules with better names", "should_trigger": false},
+  {"query": "upgrade my project that was built with an older version of project-architect to the current v5 format", "should_trigger": false},
+  {"query": "write a script that decompiles this Android APK and pulls out the smali — I want to reverse-engineer a competitor's binary", "should_trigger": false},
+  {"query": "add a /metrics endpoint to my existing express app and wire it to prometheus", "should_trigger": false}
+]

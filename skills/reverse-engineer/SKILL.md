@@ -1,6 +1,6 @@
 ---
 name: reverse-engineer
-description: Use when the user wants to reverse-engineer a project, recover the design of an existing/foreign/brownfield codebase, understand or analyze code someone else wrote, figure out what an unfamiliar project does and how it's built, reconstruct architecture/decisions/requirements from existing source + docs, or prepare an existing (non-project-architect) project to be carried forward by project-architect. Works on any source-level project — arbitrary code, a half-built implementation, scattered notes, or just a folder tree with no architect state. Recovers an inventory, a dependency map, current-version-researched tech landscape, inferred requirements, and a reviewable RECOVERED_DESIGN + flat decisions keyspace; never trusts stale model knowledge; reads the target read-only.
+description: Use when the user wants to reverse-engineer, understand, or analyze an unfamiliar source codebase they didn't write — a foreign/brownfield project, a half-built implementation, or a folder of code and notes with no docs. Triggers on "reverse engineer this," "what does this project do and how is it built," "someone handed me this repo," recovering architecture/requirements/design from existing source, or auditing a foreign project's real dependency versions, CVEs, and EOL/runtime status from live sources rather than model memory. Produces a read-only inventory, dependency map, inferred requirements, and a reviewable recovered design. Do NOT use for projects already set up by project-architect (they carry architect state — use re-architect or upgrade-project instead), or for binary/compiled reverse-engineering such as decompiling APKs or executables and extracting bytecode/smali — this handles readable source only.
 ---
 
 <!--
@@ -85,7 +85,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
 
 ## P0 — Detect & scope
 
-**Goal:** confirm there is a foreign project to recover (and that it isn't already a PA project), then fix the scope.
+**Goal:** confirm there is a foreign project to recover (and that it isn't already a PA project), then fix the scope. The target is **readable source** (code, docs, notes) — this is not binary/compiled reverse-engineering (decompiling APKs/executables, extracting bytecode); `re-detect`'s material probe is source-file based, so a binary-only target surfaces as `nothing-to-do`.
 
 1. **Run the detection helper** (capture, don't dump — output-style §1):
    ```bash

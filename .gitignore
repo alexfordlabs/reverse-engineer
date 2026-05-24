@@ -35,6 +35,11 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# skill-creator eval scratch — raw `claude -p` transcripts / run JSON from the
+# description-optimizer pass. The curated eval set (tests/skill-eval/eval.md,
+# trigger-eval.json, description-optimization.md) IS committed; the raw runs aren't.
+tests/skill-eval/_runs/
+
 # Internal dev scaffolding — workspace/dev only, NOT part of the published plugin.
 # (implementation plans, design specs, test-plans, the historical migration runbook,
 #  and the full unabridged development changelog — the published CHANGELOG.md is curated)

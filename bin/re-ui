@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Author: Alexander Ford <alex@alexfordlabs.com>
+# License: MIT
+# Project: reverse-engineer (https://github.com/alexfordlabs/reverse-engineer)
+#
+# re-ui — the orchestrator's presentation helper (mirrors project-architect's
+# bin/architect-ui). Renders clean, branded, *informational* progress to plain
+# stdout for the P0–P5 recovery pipeline.
+#
+# Why no ANSI: the Claude Code transcript is append-only markdown, not a live TTY.
+# Cursor moves / \r don't render and color codes would corrupt the exact-match
+# `step` capture. The "beauty" is the Unicode block-char bar, the ✓/→/✗ symbols,
+# and a clean monospace layout. The bar "animates" by ADVANCING — the orchestrator
+# emits `progress` at each phase boundary, so a fresh, fuller bar prints down the
+# transcript rather than redrawing in place. The orchestrator renders these INLINE
+# in its reply (the banner/bar are curated narration, not raw tool output).
+#
+# Usage:
+#   re-ui banner
+#   re-ui progress <current> <total> <label>     # total is 6 for the P0–P5 pipeline
+#   re-ui step <symbol> <text>                    # symbol ∈ { ✓ → ✗ }
+#
+# All output is pure stdout, NO ANSI escape sequences.
+
+set -euo pipefail
+
+WIDTH=20   # progress-bar inner width, in block chars
+
+usage() {
+  cat <<'EOF'
+re-ui — reverse-engineer presentation helper
+
+Usage:
+  re-ui banner                          print the ASCII-art banner + tagline
+  re-ui progress <current> <total> <label>   advancing block-char progress bar
+  re-ui step <symbol> <text>            styled status line (symbol ∈ ✓ → ✗)
+
+Notes:
+  Pure stdout, no ANSI escapes (the transcript is append-only markdown, not a TTY).
+EOF
+}
+
+banner() {
+  # "RE" monogram in the same half-block font as project-architect's architect-ui
+  # (the R + E glyphs are reused verbatim, so the mark is guaranteed well-formed).
+  # The plain-text tagline GUARANTEES the literal substring "reverse-engineer" for
+  # any caller (and for the test contract).
+  cat <<'EOF'
+   █▀█ █▀▀
+   █▀▄ ██▄
+
+   reverse-engineer · recover a design from code you didn't write
+   ──────────────────────────────────────────────────────────────
+EOF
+}
+
+progress() {
+  local current="${1:-0}" total="${2:-0}" label="${3:-}"
+  local filled pct empty bar
+
+  # Divide-by-zero guard: a non-positive total clamps to 0% / empty bar rather
+  # than crashing (avoids the $((x/0)) arithmetic error under set -e).
+  if [[ "$total" -le 0 ]]; then
+    filled=0
+    pct=0
+  else
+    filled=$(( current * WIDTH / total ))
+    pct=$(( current * 100 / total ))
+    # Clamp so an over-count (current > total) can't overrun the bar / exceed 100%.
+    (( filled > WIDTH )) && filled=$WIDTH
+    (( pct > 100 ))      && pct=100
+  fi
+  empty=$(( WIDTH - filled ))
+
+  # Build the bar. The explicit -gt 0 guards keep `seq 1 0` (empty) safe.
+  bar=""
+  if [[ "$filled" -gt 0 ]]; then bar+="$(printf '█%.0s' $(seq 1 "$filled"))"; fi
+  if [[ "$empty"  -gt 0 ]]; then bar+="$(printf '░%.0s' $(seq 1 "$empty"))"; fi
+
+  # Layout: "  Phase 3/6  [██████████░░░░░░░░░░]  50%  recovering the design"
+  # %3d right-aligns the percentage so the columns stay even as the bar advances.
+  printf '  Phase %s/%s  [%s] %3d%%  %s\n' "$current" "$total" "$bar" "$pct" "$label"
+}
+
+step() {
+  local symbol="${1:-}" text="${2:-}"
+  # Exactly "<symbol> <text>" — one space, no trailing decoration — so a caller's
+  # $(...) capture equals the rendered line verbatim.
+  printf '%s %s\n' "$symbol" "$text"
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  -h|--help)  usage; exit 0 ;;
+  "")         usage >&2; exit 2 ;;
+  banner)     banner ;;
+  progress)   progress "${1:-0}" "${2:-0}" "${3:-}" ;;
+  step)       step "${1:-}" "${2:-}" ;;
+  *)          echo "re-ui: unknown subcommand: '$cmd'" >&2; exit 2 ;;
+esac

@@ -31,6 +31,33 @@ The orchestrator runs mechanical scripts + agent dispatches; the user reads a cu
 
 **The litmus test:** if a line in the transcript is something a *tool printed*, it's plumbing — capture it. If it's something *you decided to tell the user*, it's progress — surface it as one clean step line.
 
+### The one exception you SURFACE, not capture — the inline banner + progress bar
+
+The `re-ui` **banner**, the advancing **progress bar**, and the `✓`/`→`/`✗` **step lines** are your curated narration, not plumbing. Render them **inline in your reply** as markdown — a fenced ``` block for the banner + bar so the block characters align — **never left only in a tool-result block** and never captured-and-suppressed. `${CLAUDE_PLUGIN_ROOT}/bin/re-ui` is the canonical renderer (pure stdout, no ANSI, deterministic — safe to reproduce verbatim); the exact art is embedded here so you reproduce it without a display-only Bash call.
+
+**Banner — ONCE, at the very start of a run** (open your first reply with it):
+
+```
+   █▀█ █▀▀
+   █▀▄ ██▄
+
+   reverse-engineer · recover a design from code you didn't write
+   ──────────────────────────────────────────────────────────────
+```
+
+**Progress bar — at EACH phase boundary (P0 → P5)**, lead the reply with the matching row from this ladder (copy the row for the phase you're entering), then your `✓`/`→`/`✗` step lines for what completed:
+
+```
+  Phase 1/6  [███░░░░░░░░░░░░░░░░░]  16%  P0 Detect & scope
+  Phase 2/6  [██████░░░░░░░░░░░░░░]  33%  P1 Understand
+  Phase 3/6  [██████████░░░░░░░░░░]  50%  P2 Recover design
+  Phase 4/6  [█████████████░░░░░░░]  66%  P3 Triage & validate
+  Phase 5/6  [████████████████░░░░]  83%  P4 Emit
+  Phase 6/6  [████████████████████] 100%  P5 Handoff
+```
+
+(Regenerate any row exactly with `re-ui progress <n> 6 "<label>"`; the binary is the source of truth. The CC transcript is append-only markdown — no in-place redraw; the bar **advances down the transcript** as each phase prints a fuller row.)
+
 ---
 
 ## 2. Speed

@@ -1,0 +1,16 @@
+{
+  "name": "widget-api",
+  "version": "0.3.2",
+  "description": "A tiny FOREIGN (brownfield) Express widget API — NOT produced by project-architect. Fixture for the reverse-engineer end-to-end pipeline test; deliberately carries a stale-pinned dependency and an EOL runtime.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=16 <17"
+  },
+  "dependencies": {
+    "express": "4.16.0"
+  }
+}

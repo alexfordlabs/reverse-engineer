@@ -10,9 +10,13 @@ All notable changes to the `reverse-engineer` plugin.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v1.0.1 — 2026-05-24
+## v1.1.0 — 2026-05-24
 
-**Install-verification fixes** — corrections surfaced by running v1.0.0 end-to-end on the live install.
+**Inline run UI + install-verification fixes.**
+
+### Added
+
+- **Inline run UI.** A run now opens with the `re-ui` ASCII **banner** and leads each phase boundary (P0 → P5) with an advancing block-char **progress bar** (`Phase 3/6  [██████████░░░░░░░░░░]  50%  P2 Recover design`) plus `✓`/`→`/`✗` step lines — rendered inline in the conversation, so you watch the recovery advance from detect to handoff. `bin/re-ui` is the canonical renderer; the banner + the P0–P5 progress ladder are embedded in `references/output-style.md` so the orchestrator reproduces them verbatim. (Mirrors project-architect's `architect-ui`.)
 
 ### Fixed
 

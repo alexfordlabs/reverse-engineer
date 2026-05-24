@@ -45,6 +45,8 @@ The recovery's state lives at `<out>/docs/_architect_state.json` — PA's **sche
 ${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" set-substep P1 "dependency-mapper dispatched"
 ```
 
+**At every phase boundary, NARRATE inline (UI).** Emitting the bar is part of the boundary act, alongside the `set-substep` write above — not a preamble afterthought. As you enter each phase (P0 → P5), OPEN your reply with that phase's progress-ladder row from `output-style.md` §1 + the `✓`/`→`/`✗` step lines for what just completed, rendered inline in a fenced block, NEVER left only in a tool-result block. The `re-ui` banner opens the FIRST reply of the run (P0); the bar leads every boundary thereafter. (Mirrors project-architect's transition-contract NARRATE step.)
+
 **On startup**, if `<out>/docs/_architect_state.json` already exists with `origin: "reverse-engineered"`, read `reverse_engineer_progress`, print a one-line resume summary, and **jump to the first phase that is not `complete`** — do NOT re-run finished passes (reuse their recorded sub-ledger + the already-emitted artifacts; see output-style §2). The state is `init`'d lazily by `re-emit` at P4 (or you may `re-ledger init` earlier if you want the sub-ledger from P0); either way `re-ledger` is the only writer.
 
 ## Input-threading (the spine — read this before dispatching anything)
@@ -84,6 +86,8 @@ Pass the upstream output **as the agent returned it** (the full produced content
 ---
 
 ## P0 — Detect & scope
+
+**Open the run.** P0 is the recovery's first phase, so this is your first reply — open it with the `re-ui` banner (the exact monogram art is embedded in `references/output-style.md` §1) rendered inline in a fenced block, then lead with the `Phase 1/6` progress-ladder row. The banner appears ONCE, here.
 
 **Goal:** confirm there is a foreign project to recover (and that it isn't already a PA project), then fix the scope. The target is **readable source** (code, docs, notes) — this is not binary/compiled reverse-engineering (decompiling APKs/executables, extracting bytecode); `re-detect`'s material probe is source-file based, so a binary-only target surfaces as `nothing-to-do`.
 

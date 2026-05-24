@@ -33,6 +33,7 @@
 #   re-ledger now
 #   re-ledger [--state PATH] init --recovered-by <s> --source-summary <s>
 #   re-ledger [--state PATH] set-decision <key> <json-or-string>
+#   re-ledger [--state PATH] import-decisions <file.json>
 #   re-ledger [--state PATH] set-substep <phase> <substep>
 #   re-ledger [--state PATH] set-recovery <field> <value>
 #
@@ -81,6 +82,12 @@ Subcommands:
         Merge into flat .decisions (raw JSON if it parses, else bare string).
         Dotted keys (e.g. database.engine) are stored as LITERAL flat keys, never nested.
         Sets decisions_schema_version "1.0".
+  import-decisions <file.json>
+        Bulk-merge a flat {key:value} JSON object into .decisions (raw values).
+        Dotted keys stay LITERAL/flat, never nested. Merges alongside existing
+        decisions without clobbering; idempotent; sets decisions_schema_version "1.0".
+        Mirrors project-architect's `architect-ledger import-decisions` exactly, so the
+        flat keyspace round-trips identically through BOTH ledgers.
   set-substep <phase> <substep>
         Record reverse_engineer_progress[<phase>] for resumability. Idempotent
         per-phase upsert preserving siblings. Entry: {substep, complete:false,
@@ -187,6 +194,21 @@ case "$cmd" in
         | .decisions_schema_version = (.decisions_schema_version // "1.0")' \
         --arg key "$key" --arg val "$val"
     fi
+    ;;
+  import-decisions)
+    require_state
+    file="$1"
+    # Bulk-merge a flat {key:value} JSON object into .decisions — raw values, LITERAL
+    # dotted keys kept flat (never nested), merged ALONGSIDE existing decisions (the
+    # imported object is added on TOP of .decisions, so a clashing key takes the
+    # imported value while every non-clashing existing key survives). decisions_schema_version
+    # is filled only when absent (// preserves a pre-set one). Idempotent: re-importing the
+    # same object is a no-op (same keys, same values). This MIRRORS project-architect's
+    # `architect-ledger import-decisions` jq filter EXACTLY, so the flat keyspace round-trips
+    # identically through both ledgers — the interop linchpin.
+    _apply '.decisions = ((.decisions // {}) + $imported)
+      | .decisions_schema_version = (.decisions_schema_version // "1.0")' \
+      --argjson imported "$(cat "$file")"
     ;;
   set-substep)
     require_state

@@ -185,11 +185,11 @@ Pass the upstream output **as the agent returned it** (the full produced content
    - `SUMMARY.md` is the recovery report YOU compose (what was found, overall confidence, the gaps + low-confidence triage targets, which passes ran with tool provenance) — the standalone deliverable's executive summary.
    - `--characterization-dir` only if characterization ran (opt-in).
    - `re-emit` writes ONLY under `<out>/docs/` (never the analyzed target's code), writes a skeleton placeholder for any artifact you didn't provide (so the set is always complete), and **ensures the schema-3.1 state** by delegating to `re-ledger init` (only if absent — an existing state is preserved). See [`../../references/artifacts.md`](../../references/artifacts.md) for the full artifact-set contract.
-2. **Ingest the triaged keyspace** into `.decisions` via `re-ledger`:
+2. **Ingest the triaged keyspace** into `.decisions` in ONE bulk merge via `re-ledger import-decisions`. Write the triaged flat keyspace (the P3 output) to a temp JSON file `{canonical.key: scalar}`, then:
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" import-decisions "$TRIAGED_KEYSPACE_JSON"
    ```
-   > **`re-ledger import-decisions` is added in the next task (W4-interop).** Until it lands, ingest the triaged keyspace decision-by-decision with `re-ledger set-decision <key> <json-or-string>` (the existing subcommand — same flat-key, `import-decisions`-compatible storage). Either way the decisions land in the schema-3.1 `.decisions` keyspace that PA's own `import-decisions` consumes.
+   `import-decisions` merges the flat object into `.decisions` (raw values; LITERAL dotted keys kept flat; merge-on-top so nothing pre-existing is clobbered; idempotent) and stamps `decisions_schema_version`. It **mirrors PA's `architect-ledger import-decisions` exactly**, so the keyspace lands in the schema-3.1 `.decisions` that PA's own `import-decisions` consumes identically — see [`../../references/interop-contract.md`](../../references/interop-contract.md).
 3. `set-substep P4 "emitted"` → `✓ P4: artifact set written → docs/reverse-engineer/ + RECOVERED_DESIGN + schema-3.1 state ({{N}} decisions)`.
 
 ---
@@ -198,11 +198,11 @@ Pass the upstream output **as the agent returned it** (the full produced content
 
 **Goal:** make the recovery's value reachable — standalone, and (if PA is installed) carried forward seamlessly.
 
-1. **The shared contract is already on disk** (P4): `<out>/docs/RECOVERED_DESIGN.md` + `<out>/docs/_architect_state.json` (schema 3.1, `origin: "reverse-engineered"`, the flat triaged `decisions` keyspace). This is the standalone deliverable and the hand-off surface. Update `recovery.confidence_summary` if useful via `re-ledger set-recovery confidence_summary "{{…}}"`.
-2. **Offer to invoke project-architect's forward flow** — if `project-architect` is installed:
-   - Offer to hand the recovered, triaged design to PA's forward engine to generate the full design-doc set / ADRs / `CLAUDE.md` / `.claude/` tooling + a scaffold-gap analysis, **seeded from the recovered decisions** (PA reads the schema-3.1 state, ingests the flat keyspace via its own `import-decisions`, and its `/re-architect` triage consumes `RECOVERED_DESIGN.md` identically to its own `design-recovery`).
-   - **The exact invocation wiring lands in the next task (W4-interop)** — reference it here: P5 will invoke PA's forward flow directly when both plugins are installed, via the shared schema-3.1 contract. For now, point the user at the contract on disk + how to take it forward in project-architect.
-3. **If project-architect is NOT installed:** print how to install it (`claude plugin marketplace add alexfordlabs/…` then `claude plugin install project-architect`) and state that the recovery contract (`RECOVERED_DESIGN.md` + the schema-3.1 state + the flat decisions) is ready for it. The standalone artifacts (`docs/reverse-engineer/` + `SUMMARY.md`) stand on their own regardless.
+1. **The shared contract is already on disk** (P4): `<out>/docs/RECOVERED_DESIGN.md` + `<out>/docs/_architect_state.json` (schema 3.1, `origin: "reverse-engineered"`, the flat triaged `decisions` keyspace). This is the standalone deliverable AND the hand-off surface — the three artifacts both plugins speak, defined in [`../../references/interop-contract.md`](../../references/interop-contract.md). Update `recovery.confidence_summary` if useful via `re-ledger set-recovery confidence_summary "{{…}}"`.
+2. **Offer to invoke project-architect's forward flow** — if `project-architect` is installed (the `project-architect` skill is available):
+   - Offer to hand the recovered, triaged design to PA's forward engine to generate the full design-doc set / ADRs / `CLAUDE.md` / `.claude/` tooling + a scaffold-gap analysis, **seeded from the recovered decisions**. The seam is the contract, not code: PA reads the schema-3.1 state, ingests the flat keyspace via its own `import-decisions` (the exact counterpart of P4's `re-ledger import-decisions` — same keyspace, identical merge), and its `/re-architect` triage consumes `RECOVERED_DESIGN.md` identically to its own `design-recovery` output.
+   - **On an unambiguous yes, invoke PA's forward flow directly** — point it at `<out>` so PA reads the on-disk schema-3.1 contract (the recovered state + `RECOVERED_DESIGN.md` + the flat `decisions`). Because the recovery already wrote PA's native state, no conversion step is needed; PA picks up where the recovery left off. Per [`../../references/interop-contract.md` § reverse-engineer → project-architect](../../references/interop-contract.md), this hand-off is **not** a hard dependency — it is offered only when PA is present.
+3. **If project-architect is NOT installed:** print how to install it (`claude plugin marketplace add alexfordlabs/…` then `claude plugin install project-architect`) and state that the recovery contract (`RECOVERED_DESIGN.md` + the schema-3.1 state + the flat decisions keyspace ingestible by PA's `import-decisions`) is ready for it. The standalone artifacts (`docs/reverse-engineer/` + `SUMMARY.md`) stand on their own regardless.
 4. `set-substep P5 "handoff offered"` → `✓ P5: handoff ready — recovery complete`.
 
 ---
@@ -229,12 +229,13 @@ On any BLOCKER (an agent returns an informational-error state, a helper exits no
 | The narration + error convention | [`../../references/output-style.md`](../../references/output-style.md) |
 | The Shared dispatch header + each agent's `[INPUTS]`/`[TASK]` body | [`../../references/dispatch-prompts.md`](../../references/dispatch-prompts.md) |
 | The P4 artifact-set contract (each file, its source agent, the state) | [`../../references/artifacts.md`](../../references/artifacts.md) |
+| The shared interop contract with project-architect (schema 3.1, the flat keyspace, both invocation directions) | [`../../references/interop-contract.md`](../../references/interop-contract.md) |
 | The current-version cascade (landscape-researcher's procedure) | [`../../references/current-version-cascade.md`](../../references/current-version-cascade.md) |
 | The `RECOVERED_DESIGN.md` shape (PA-compatible) | [`../../references/templates/RECOVERED_DESIGN.md`](../../references/templates/RECOVERED_DESIGN.md) |
 | What each agent expects + produces | the agent's own `agents/<agent>.md` (its `## Inputs` + `## Output structure`) |
 | The detection verdict shape | `bin/re-detect -h` |
 | The emit mechanics + flags | `bin/re-emit -h` |
-| The state writer subcommands (`init`/`set-decision`/`set-substep`/`set-recovery`) | `bin/re-ledger -h` |
+| The state writer subcommands (`init`/`set-decision`/`import-decisions`/`set-substep`/`set-recovery`) | `bin/re-ledger -h` |
 
 ---
 

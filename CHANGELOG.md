@@ -10,6 +10,14 @@ All notable changes to the `reverse-engineer` plugin.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v1.1.2 — 2026-05-24
+
+**Distribution: reverse-engineer now installs from the shared `alexfordlabs/skills` marketplace.**
+
+### Changed
+
+- The shared marketplace moved to its own repository, [`alexfordlabs/skills`](https://github.com/alexfordlabs/skills) — a dedicated collection serving both `reverse-engineer` and `project-architect` (and future plugins), so `claude plugin marketplace add alexfordlabs/skills` reads as a collection rather than a single plugin. README install instructions updated accordingly. The marketplace **name** is unchanged (`alexfordlabs`), so the `@alexfordlabs` install namespace and existing installs are unaffected.
+
 ## v1.1.1 — 2026-05-24
 
 **The inline run UI now renders reliably — emission is wired into the per-boundary act, not just the preamble.**

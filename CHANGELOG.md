@@ -10,6 +10,14 @@ All notable changes to the `reverse-engineer` plugin.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v1.1.1 — 2026-05-24
+
+**The inline run UI now renders reliably — emission is wired into the per-boundary act, not just the preamble.**
+
+### Fixed
+
+- v1.1.0 introduced the inline banner + advancing progress bar as a strong preamble directive, but the per-boundary heartbeat (the "Record progress at every phase boundary" rule that performs the `re-ledger set-substep` write) carried no UI-emission step. A run that followed the rule literally could write the ledger yet render neither banner nor bar. The boundary rule now carries a **NARRATE (UI)** directive: as each phase (P0 → P5) begins, the reply opens with that phase's progress-ladder row + `✓`/`→`/`✗` step lines, rendered inline (never left only in a tool-result block) — alongside the `set-substep` write, not as a preamble afterthought. P0 (the run's first reply) now reminds to open with the `re-ui` banner. Mirrors project-architect's v7.1.1 transition-contract NARRATE step. `bin/re-ui` and the embedded ladder are unchanged.
+
 ## v1.1.0 — 2026-05-24
 
 **Inline run UI + install-verification fixes.**

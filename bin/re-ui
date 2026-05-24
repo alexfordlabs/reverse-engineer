@@ -34,9 +34,12 @@ Usage:
   re-ui banner                          print the ASCII-art banner + tagline
   re-ui progress <current> <total> <label>   advancing block-char progress bar
   re-ui step <symbol> <text>            styled status line (symbol ∈ ✓ → ✗)
+  re-ui phase-bar <phase_key>           the 6-step ladder row for a P0–P5 key
+                                        (P0|P1|P2|P3|P4|P5); unknown key = no-op
 
 Notes:
   Pure stdout, no ANSI escapes (the transcript is append-only markdown, not a TTY).
+  Fold phase-bar into the boundary write: `re-ledger ... set-substep <Pn> '<s>' && re-ui phase-bar <Pn>`.
 EOF
 }
 
@@ -89,6 +92,28 @@ step() {
   printf '%s %s\n' "$symbol" "$text"
 }
 
+# phase-bar <phase_key> — the per-boundary bar, keyed by the SAME P0–P5 key the
+# orchestrator hands `re-ledger set-substep`. The v1.2.0 fix (mirrors architect-ui):
+# the orchestrator runs `set-substep <Pn> '<substep>' && re-ui phase-bar <Pn>` so the
+# advancing bar prints in the same tool-result block as the boundary's ledger write —
+# the UI rides on an action it already takes instead of being transcribed inline
+# (which is what kept it from ever showing). The map is the single source of truth for
+# the 6-step ladder. An unknown/missing key emits NOTHING and exits 0, so a typo can
+# never break the `&&` chain after a successful set-substep.
+phase_bar() {
+  local key="${1:-}" cur label
+  case "$key" in
+    P0) cur=1; label="P0 Detect & scope" ;;
+    P1) cur=2; label="P1 Understand" ;;
+    P2) cur=3; label="P2 Recover design" ;;
+    P3) cur=4; label="P3 Triage & validate" ;;
+    P4) cur=5; label="P4 Emit" ;;
+    P5) cur=6; label="P5 Handoff" ;;
+    *)  return 0 ;;   # unknown/empty key: chain-safe no-op
+  esac
+  progress "$cur" 6 "$label"
+}
+
 cmd="${1:-}"; shift || true
 case "$cmd" in
   -h|--help)  usage; exit 0 ;;
@@ -96,5 +121,6 @@ case "$cmd" in
   banner)     banner ;;
   progress)   progress "${1:-0}" "${2:-0}" "${3:-}" ;;
   step)       step "${1:-}" "${2:-}" ;;
+  phase-bar)  phase_bar "${1:-}" ;;
   *)          echo "re-ui: unknown subcommand: '$cmd'" >&2; exit 2 ;;
 esac

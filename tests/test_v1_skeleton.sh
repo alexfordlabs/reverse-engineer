@@ -18,7 +18,7 @@ assert_exit_code 0 jq -e . "$MANIFEST"
 
 # Canonical manifest fields
 assert_eq "$(jq -r .name "$MANIFEST")" "reverse-engineer" ".name must be reverse-engineer"
-assert_eq "$(jq -r .version "$MANIFEST")" "1.1.2" ".version must be 1.1.2"
+assert_eq "$(jq -r .version "$MANIFEST")" "1.2.0" ".version must be 1.2.0"
 assert_eq "$(jq -r .author.email "$MANIFEST")" "alex@alexfordlabs.com" ".author.email must be alex@alexfordlabs.com"
 
 test_summary

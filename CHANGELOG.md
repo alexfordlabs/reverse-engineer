@@ -10,6 +10,24 @@ All notable changes to the `reverse-engineer` plugin.
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v1.2.0 — 2026-05-24
+
+**The run UI now actually shows. The banner and the advancing phase bar render by *running* `bin/re-ui` — not by transcribing its art into the reply.** (Mirrors project-architect v7.2.0.)
+
+### Fixed
+
+- **The banner, progress bar, and P0–P5 phase indicators were not appearing during real runs.** They had been specified as *inline* narration — the orchestrator was asked to transcribe the embedded art into its reply at each boundary — which is discretionary and gets dropped under load. v1.1.0 embedded the art and v1.1.1 added a NARRATE directive, but neither could fix what was structurally discretionary.
+
+### Added
+
+- **`re-ui phase-bar <Pn>`** — maps a `P0`…`P5` phase key to its row in the 6-step recovery ladder; the single source of truth for the ladder, with an unknown key a chain-safe no-op.
+
+### Changed
+
+- **The bar is folded into the per-boundary `set-substep` write.** Each phase's first boundary write is now one Bash call — `re-ledger … set-substep <Pn> '<substep>' && re-ui phase-bar <Pn>` — so the advancing bar prints into the same tool-result block as the ledger write. `set-substep` is silent, so the box shows only the bar. The banner is run once at P0.
+- `references/output-style.md` rewritten: `re-ui`'s stdout is the one mechanical output you do *not* capture-and-suppress — you run the binary and let the tool-result block show it.
+- Test suite: the two inline-mechanism tests are replaced by `test_v12_ui_run_the_binary.sh` (binary `phase-bar` + the run-the-binary wiring across `SKILL.md` and `output-style.md`).
+
 ## v1.1.2 — 2026-05-24
 
 **Distribution: reverse-engineer now installs from the shared `alexfordlabs/skills` marketplace.**

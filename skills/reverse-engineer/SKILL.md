@@ -15,7 +15,7 @@ You orchestrate a 6-phase recovery of a **foreign / brownfield** project — one
 
 **The premise that shapes everything:** the foreign project's **code is ground truth**; its docs may have drifted; its tech almost certainly post-dates your training cutoff. So the recovery is evidence-based (every claim cites `file:line` or a tool output), **research-augmented** (current versions/EOL/CVEs from LIVE sources, never memory — `landscape-researcher`), and **validated, not trusted** (a human triages it before it's committed — P3).
 
-**Output style:** surface clean informational progress per [`../../references/output-style.md`](../../references/output-style.md). **Open the run with the `re-ui` banner, and lead every phase boundary (P0 → P5) with the advancing progress bar (the per-phase ladder in `output-style.md` §1) + `✓`/`→`/`✗` step lines — rendered INLINE in your reply as markdown** (the banner + bar are your curated narration; put them in a fenced block in the reply, never left only in a tool-result block). Capture *mechanical* output (the `re-detect` verdict JSON, each agent's return, `re-emit`'s write log, the agents' tool stdout) and never dump it raw. On a BLOCKER, run the §3 R2 self-heal protocol (informational error → `AskUserQuestion`: report-and-stop or self-heal-and-continue).
+**Output style:** surface clean informational progress per [`../../references/output-style.md`](../../references/output-style.md). **You RENDER the UI by RUNNING the binary — never by transcribing its art.** Open the run by running `${CLAUDE_PLUGIN_ROOT}/bin/re-ui banner` (its stdout prints the banner into the tool result the user sees); then at every phase boundary (P0 → P5) the boundary's `set-substep` write ALSO runs `${CLAUDE_PLUGIN_ROOT}/bin/re-ui phase-bar <Pn>` in the SAME Bash call (`set-substep <Pn> '<substep>' && re-ui phase-bar <Pn>`), so the advancing bar prints in that tool result. **The tool-result block IS the user-visible surface; never suppress it.** Add `✓`/`→`/`✗` step lines for what completed. Capture *every other* mechanical output (the `re-detect` verdict JSON, each agent's return, `re-emit`'s write log, the agents' tool stdout) and never dump it raw. On a BLOCKER, run the §3 R2 self-heal protocol (informational error → `AskUserQuestion`: report-and-stop or self-heal-and-continue).
 
 **Dispatch discipline:** every agent is dispatched **`model: opus`, maximum effort**, prepending the **Shared dispatch header** from [`../../references/dispatch-prompts.md`](../../references/dispatch-prompts.md) (the model directive + the read-only-over-target rule + the identity-hygiene HARD RULE + the post-return scrub) and then the per-agent `[INPUTS]` (the threaded upstream content) + `[TASK]` from that same file. See [§ Dispatch discipline](#dispatch-discipline).
 
@@ -42,10 +42,10 @@ The recovery's state lives at `<out>/docs/_architect_state.json` — PA's **sche
 **Record progress at every phase boundary** via `re-ledger set-substep <phase> <substep>` so an interrupted run **resumes** — and so PA's situation-router can detect a half-finished recovery (the sub-ledger mirrors PA's `rearchitect_progress`; its entries carry `.complete` + `.completed_at`, which PA's `detect` reads):
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" set-substep P1 "dependency-mapper dispatched"
+${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" set-substep P1 "dependency-mapper dispatched" && ${CLAUDE_PLUGIN_ROOT}/bin/re-ui phase-bar P1
 ```
 
-**At every phase boundary, NARRATE inline (UI).** Emitting the bar is part of the boundary act, alongside the `set-substep` write above — not a preamble afterthought. As you enter each phase (P0 → P5), OPEN your reply with that phase's progress-ladder row from `output-style.md` §1 + the `✓`/`→`/`✗` step lines for what just completed, rendered inline in a fenced block, NEVER left only in a tool-result block. The `re-ui` banner opens the FIRST reply of the run (P0); the bar leads every boundary thereafter. (Mirrors project-architect's transition-contract NARRATE step.)
+**At every phase boundary, NARRATE by RUNNING the bar (UI).** Emitting the bar is part of the boundary act, folded into the `set-substep` write above — `set-substep <Pn> '<substep>' && re-ui phase-bar <Pn>` in ONE Bash call. `set-substep` prints nothing, so the tool result shows ONLY the advancing bar; that tool-result block IS the user-visible surface — do NOT transcribe the art, and never suppress it. Run `re-ui phase-bar <Pn>` for the phase you're entering at its first `set-substep`, then add the `✓`/`→`/`✗` step lines for what just completed. The `re-ui banner` opens the FIRST reply of the run (P0, run once); the bar leads every boundary thereafter. (Mirrors project-architect's transition-contract LEDGER-WRITE + UI step.)
 
 **On startup**, if `<out>/docs/_architect_state.json` already exists with `origin: "reverse-engineered"`, read `reverse_engineer_progress`, print a one-line resume summary, and **jump to the first phase that is not `complete`** — do NOT re-run finished passes (reuse their recorded sub-ledger + the already-emitted artifacts; see output-style §2). The state is `init`'d lazily by `re-emit` at P4 (or you may `re-ledger init` earlier if you want the sub-ledger from P0); either way `re-ledger` is the only writer.
 
@@ -87,7 +87,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
 
 ## P0 — Detect & scope
 
-**Open the run.** P0 is the recovery's first phase, so this is your first reply — open it with the `re-ui` banner (the exact monogram art is embedded in `references/output-style.md` §1) rendered inline in a fenced block, then lead with the `Phase 1/6` progress-ladder row. The banner appears ONCE, here.
+**Open the run.** P0 is the recovery's first phase, so this is your first reply — open it by RUNNING `${CLAUDE_PLUGIN_ROOT}/bin/re-ui banner` (a Bash call; its stdout prints the banner into the tool result the user sees — do NOT merely describe or transcribe it). The banner appears ONCE, here. The `Phase 1/6` bar follows folded into P0's `set-substep` write (step 4 below).
 
 **Goal:** confirm there is a foreign project to recover (and that it isn't already a PA project), then fix the scope. The target is **readable source** (code, docs, notes) — this is not binary/compiled reverse-engineering (decompiling APKs/executables, extracting bytecode); `re-detect`'s material probe is source-file based, so a binary-only target surfaces as `nothing-to-do`.
 
@@ -104,7 +104,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
 3. **Confirm scope.** The opinionated default is **whole-repo** (`verdict.scope_default`). Offer the user a per-run override to a subpath (e.g. "just `packages/api/`"). Record the chosen `scope`.
 4. **Record progress:**
    ```bash
-   ${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" set-substep P0 "detected foreign; scope={{scope}}"
+   ${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" set-substep P0 "detected foreign; scope={{scope}}" && ${CLAUDE_PLUGIN_ROOT}/bin/re-ui phase-bar P0
    ```
    (If the state doesn't exist yet, `re-ledger init --recovered-by reverse-engineer --source-summary "{{material summary}}"` first, or let `re-emit` init it at P4 — `re-ledger` is the only writer either way.)
 
@@ -120,7 +120,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
 
 1. **`code-inventory` FIRST** — it has no upstream agent input; everything else builds on it.
    - Dispatch `reverse-engineer:code-inventory` (`model: opus`, max effort) with the **Shared dispatch header** + the **P1 — code-inventory** body from `references/dispatch-prompts.md`. Fill `target_root` / `scope` / `tools_available` from `re-detect`'s verdict.
-   - `set-substep P1 "code-inventory dispatched"` → on return, capture its **inventory** content; `✓ P1: inventory — {{components}} components, {{entities}} data entities, ranked symbols`.
+   - `set-substep P1 "code-inventory dispatched" && re-ui phase-bar P1` → on return, capture its **inventory** content; `✓ P1: inventory — {{components}} components, {{entities}} data entities, ranked symbols`.
 2. **`dependency-mapper` + `requirements-extractor` next, in PARALLEL** — both consume ONLY `code-inventory`'s output, share no state, and have no ordering dependency between them. Dispatch them **in a single message with two tool calls** (output-style §2):
    - `reverse-engineer:dependency-mapper` — header + the **P1 — dependency-mapper** body; thread `inventory` into its `{{...}}` slot.
    - `reverse-engineer:requirements-extractor` — header + the **P1 — requirements-extractor** body; thread `inventory` (+ `docs_findings` from P0) into its slots.
@@ -146,7 +146,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
 2. On return, capture **both** outputs:
    - the **`RECOVERED_DESIGN` content** — the reflexion recovery (hypothesis + convergence / divergence / absence), recovered stack (grounded on landscape-researcher's current findings), component boundaries, structural-health grade, the architecture-critic's read, interface fragments (OpenAPI + mermaid `erDiagram`), and the decisions table. Shape-compatible with PA's `RECOVERED_DESIGN.md` (matches `references/templates/RECOVERED_DESIGN.md`).
    - the **flat decisions keyspace** — `{canonical-PA-key-or-project-slug: value}`, where every row is **value · confidence · evidence** and **nothing is invented** (no evidence → omitted or recorded `Low` with the gap stated). This is the half P4 ingests.
-3. `set-substep P2 "design recovered"` → `✓ P2: design recovered — {{N}} decisions ({{low}} low-confidence); structural-health {{band}}`.
+3. `set-substep P2 "design recovered" && re-ui phase-bar P2` → `✓ P2: design recovered — {{N}} decisions ({{low}} low-confidence); structural-health {{band}}`.
 
 > **Low-confidence is a SUCCESS, not a failure** — it routes the human's attention in triage (P3). `design-recoverer` never silently resolves a conflict between inputs; it surfaces it as a `Low` row. Carry that forward unchanged.
 
@@ -163,7 +163,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
    - **fill** — the recovery found the *shape* of a decision but not its value (a `Low` row, or a gap noted in `SUMMARY.md`) → the user supplies the missing value.
    Also surface the **open-questions / SME questions** `requirements-extractor` and `design-recoverer` raised, and any `characterization-tester` spec-discrepancies — those are decisions the human owes an answer on.
 3. **The gate gates:** triage happens **before** P4 writes the decisions into the state. Apply the user's keep/correct/fill edits to the flat keyspace, producing the **triaged keyspace** — the validated set that P4 ingests. Do NOT emit decisions the user hasn't seen.
-4. `set-substep P3 "triaged"` → `✓ P3: {{K}} kept, {{C}} corrected, {{F}} filled — design validated`.
+4. `set-substep P3 "triaged" && re-ui phase-bar P3` → `✓ P3: {{K}} kept, {{C}} corrected, {{F}} filled — design validated`.
 
 > This is also where the recovery stays **honest**: a value the user couldn't confirm stays flagged (e.g. recorded `Low`) rather than being promoted to a confident fact. The triaged keyspace is the human-validated truth; everything downstream builds on it.
 
@@ -194,7 +194,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
    ${CLAUDE_PLUGIN_ROOT}/bin/re-ledger --state "$OUT/docs/_architect_state.json" import-decisions "$TRIAGED_KEYSPACE_JSON"
    ```
    `import-decisions` merges the flat object into `.decisions` (raw values; LITERAL dotted keys kept flat; merge-on-top so nothing pre-existing is clobbered; idempotent) and stamps `decisions_schema_version`. It **mirrors PA's `architect-ledger import-decisions` exactly**, so the keyspace lands in the schema-3.1 `.decisions` that PA's own `import-decisions` consumes identically — see [`../../references/interop-contract.md`](../../references/interop-contract.md).
-3. `set-substep P4 "emitted"` → `✓ P4: artifact set written → docs/reverse-engineer/ + RECOVERED_DESIGN + schema-3.1 state ({{N}} decisions)`.
+3. `set-substep P4 "emitted" && re-ui phase-bar P4` → `✓ P4: artifact set written → docs/reverse-engineer/ + RECOVERED_DESIGN + schema-3.1 state ({{N}} decisions)`.
 
 ---
 
@@ -207,7 +207,7 @@ Pass the upstream output **as the agent returned it** (the full produced content
    - Offer to hand the recovered, triaged design to PA's forward engine to generate the full design-doc set / ADRs / `CLAUDE.md` / `.claude/` tooling + a scaffold-gap analysis, **seeded from the recovered decisions**. The seam is the contract, not code: PA reads the schema-3.1 state, ingests the flat keyspace via its own `import-decisions` (the exact counterpart of P4's `re-ledger import-decisions` — same keyspace, identical merge), and its `/re-architect` triage consumes `RECOVERED_DESIGN.md` identically to its own `design-recovery` output.
    - **On an unambiguous yes, invoke PA's forward flow directly** — point it at `<out>` so PA reads the on-disk schema-3.1 contract (the recovered state + `RECOVERED_DESIGN.md` + the flat `decisions`). Because the recovery already wrote PA's native state, no conversion step is needed; PA picks up where the recovery left off. Per [`../../references/interop-contract.md` § reverse-engineer → project-architect](../../references/interop-contract.md), this hand-off is **not** a hard dependency — it is offered only when PA is present.
 3. **If project-architect is NOT installed:** print how to install it (`claude plugin marketplace add alexfordlabs/…` then `claude plugin install project-architect`) and state that the recovery contract (`RECOVERED_DESIGN.md` + the schema-3.1 state + the flat decisions keyspace ingestible by PA's `import-decisions`) is ready for it. The standalone artifacts (`docs/reverse-engineer/` + `SUMMARY.md`) stand on their own regardless.
-4. `set-substep P5 "handoff offered"` → `✓ P5: handoff ready — recovery complete`.
+4. `set-substep P5 "handoff offered" && re-ui phase-bar P5` → `✓ P5: handoff ready — recovery complete`.
 
 ---
 

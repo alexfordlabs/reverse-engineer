@@ -31,11 +31,11 @@ The orchestrator runs mechanical scripts + agent dispatches; the user reads a cu
 
 **The litmus test:** if a line in the transcript is something a *tool printed*, it's plumbing — capture it. If it's something *you decided to tell the user*, it's progress — surface it as one clean step line.
 
-### The one exception you SURFACE, not capture — the inline banner + progress bar
+### The one mechanical output you do NOT capture — you RUN `re-ui`
 
-The `re-ui` **banner**, the advancing **progress bar**, and the `✓`/`→`/`✗` **step lines** are your curated narration, not plumbing. Render them **inline in your reply** as markdown — a fenced ``` block for the banner + bar so the block characters align — **never left only in a tool-result block** and never captured-and-suppressed. `${CLAUDE_PLUGIN_ROOT}/bin/re-ui` is the canonical renderer (pure stdout, no ANSI, deterministic — safe to reproduce verbatim); the exact art is embedded here so you reproduce it without a display-only Bash call.
+The `re-ui` **banner**, the advancing **progress bar**, and the `✓`/`→`/`✗` **step lines** are your curated narration, not plumbing. You **RUN** `${CLAUDE_PLUGIN_ROOT}/bin/re-ui` (pure stdout, no ANSI, deterministic) and let its output land in the **tool-result block** — that block IS the user-visible banner/bar. Do **NOT** transcribe, paste, or describe the art; RUN the binary. Why? Inline rendering is a *discretionary* act the orchestrator drops under load — it is exactly what kept the banner/bars from ever showing. Running the binary makes the UI ride on actions you already take: the banner is one Bash call at P0, and the bar is **folded into the per-boundary `set-substep` write** — `set-substep <Pn> '<substep>' && re-ui phase-bar <Pn>` — so it prints at every boundary. `set-substep` prints nothing, so the folded one-call form shows ONLY the bar; `phase-bar` maps the P0–P5 key to its row (unknown key = chain-safe no-op). Every OTHER mechanical stdout (the `re-detect` verdict, agent returns, `re-emit`'s write log, `re-ledger` echoes) is still captured + summarized.
 
-**Banner — ONCE, at the very start of a run** (open your first reply with it):
+**Banner** — run `re-ui banner` at P0 (shown here for reference, NOT to transcribe):
 
 ```
    █▀█ █▀▀
@@ -45,7 +45,7 @@ The `re-ui` **banner**, the advancing **progress bar**, and the `✓`/`→`/`✗
    ──────────────────────────────────────────────────────────────
 ```
 
-**Progress bar — at EACH phase boundary (P0 → P5)**, lead the reply with the matching row from this ladder (copy the row for the phase you're entering), then your `✓`/`→`/`✗` step lines for what completed:
+**Phase ladder** — the 6 rows `phase-bar` walks (P0→1/6 … P5→6/6). Shown for reference; the binary is the source of truth — `re-ui phase-bar <Pn>` prints the matching row, folded into that phase's `set-substep` write:
 
 ```
   Phase 1/6  [███░░░░░░░░░░░░░░░░░]  16%  P0 Detect & scope
@@ -56,7 +56,7 @@ The `re-ui` **banner**, the advancing **progress bar**, and the `✓`/`→`/`✗
   Phase 6/6  [████████████████████] 100%  P5 Handoff
 ```
 
-(Regenerate any row exactly with `re-ui progress <n> 6 "<label>"`; the binary is the source of truth. The CC transcript is append-only markdown — no in-place redraw; the bar **advances down the transcript** as each phase prints a fuller row.)
+(Regenerate any row with `re-ui phase-bar <Pn>` or `re-ui progress <n> 6 "<label>"`. The CC transcript is append-only markdown — no in-place redraw; the bar **advances down the transcript** as each phase's `set-substep && phase-bar` prints a fuller row into a new tool result.)
 
 ---
 
